@@ -1,0 +1,5505 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Dashboard - Métricas em Tempo Real</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- Firebase 9 COMPAT (com suporte a API antiga) -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+
+<style>
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: Arial, Helvetica, sans-serif;
+  background: #f5f5f5;
+  color: #333;
+}
+
+.container {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+header {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  padding: 20px;
+  border-radius: 10px;
+  margin-bottom: 30px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+header h1 {
+  font-size: 28px;
+}
+
+.tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #ddd;
+}
+
+.tab-btn {
+  padding: 12px 20px;
+  border: none;
+  background: white;
+  cursor: pointer;
+  font-weight: bold;
+  border-bottom: 3px solid transparent;
+  transition: all 0.3s;
+}
+
+.tab-btn.active {
+  border-bottom-color: #667eea;
+  color: #667eea;
+}
+
+.tab-btn:hover {
+  background: #f0f0f0;
+}
+
+.notification-badge {
+  position: absolute;
+  top: -5px;
+  right: -8px;
+  background: #dc3545;
+  color: white;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.notification-dropdown {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: 35px;
+  width: 360px;
+  max-height: 420px;
+  overflow-y: auto;
+  background: white;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+  z-index: 1001;
+}
+
+.notification-dropdown.active {
+  display: block;
+}
+
+.notification-item {
+  padding: 12px;
+  border-bottom: 1px solid #f0f0f0;
+  cursor: pointer;
+  transition: background 0.2s;
+  background: #ffffff;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  color: #2b2b2b;
+  font-weight: 500;
+  font-family: Arial, sans-serif;
+}
+
+.notification-item.deposito_pendente {
+  border-left: 4px solid #f39c12;
+}
+
+.notification-item.novo_usuario {
+  border-left: 4px solid #3498db;
+}
+
+.notification-item.usuario_bloqueado {
+  border-left: 4px solid #e74c3c;
+}
+
+.notification-item.fraude_detectada {
+  border-left: 4px solid #c0392b;
+}
+
+.notification-item.usuario_suspenso {
+  border-left: 4px solid #9b59b6;
+}
+
+.notification-item.solicitacao_saque {
+  border-left: 4px solid #27ae60;
+}
+
+.notification-item.new {
+  animation: pulse 0.8s ease-in-out;
+  background: #fff8e1;
+}
+
+.notification-item:hover {
+  background: #f8f9fa;
+}
+
+.notification-item.unread {
+  font-weight: bold;
+}
+
+.notification-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.notification-icon {
+  font-size: 18px;
+}
+
+.notification-title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.notification-status {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  text-transform: uppercase;
+}
+
+.notification-status.lida {
+  background: #e9ecef;
+  color: #6c757d;
+}
+
+.notification-status.nao-lida {
+  background: #d1ecf1;
+  color: #0c5460;
+}
+
+.notification-description {
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.notification-date {
+  font-size: 11px;
+  color: #666;
+  text-align: right;
+}
+
+@keyframes pulse {
+  0% { background-color: rgba(255, 193, 7, 0.15); }
+  50% { background-color: rgba(255, 193, 7, 0.35); }
+  100% { background-color: rgba(255, 193, 7, 0.15); }
+}
+
+.tab-content {
+  display: none;
+}
+
+.tab-content.active {
+  display: block;
+}
+
+.depositos-list {
+  display: grid;
+  gap: 15px;
+}
+
+.deposito-card {
+  background: white;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: nowrap;
+  gap: 25px;
+  min-height: 220px;
+  transition: all 0.3s;
+  border: 1px solid #f0f0f0;
+}
+
+.deposito-card:hover {
+  box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+  border-color: #667eea;
+}
+
+.deposito-info {
+  flex: 1;
+  min-width: 300px;
+}
+
+.deposito-valor {
+  font-size: 24px;
+  font-weight: bold;
+  color: #667eea;
+  margin: 10px 0;
+}
+
+.deposito-uid {
+  font-size: 12px;
+  color: #999;
+  font-family: monospace;
+  margin: 5px 0;
+}
+
+.deposito-data {
+  font-size: 12px;
+  color: #999;
+}
+
+.deposito-status {
+  display: inline-block;
+  padding: 5px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: bold;
+  margin-top: 10px;
+}
+
+.status-pendente {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.status-aprovado {
+  background: #d4edda;
+  color: #155724;
+}
+
+.status-rejeitado {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.deposito-actions {
+  display: flex;
+  gap: 10px;
+  flex-direction: column;
+  flex-shrink: 0;
+  min-width: 180px;
+}
+
+.btn {
+  padding: 12px 15px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.3s;
+  font-size: 13px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.btn-aprovar {
+  background: #28a745;
+  color: white;
+}
+
+.btn-aprovar:hover {
+  background: #218838;
+}
+
+.btn-rejeitar {
+  background: #dc3545;
+  color: white;
+}
+
+.btn-rejeitar:hover {
+  background: #c82333;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 40px;
+  color: #999;
+}
+
+.empty-state-icon {
+  font-size: 48px;
+  margin-bottom: 15px;
+}
+
+.saque-card {
+  background: white;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.saque-info {
+  flex: 1;
+  min-width: 250px;
+}
+
+.saque-valor {
+  font-size: 24px;
+  font-weight: bold;
+  color: #667eea;
+  margin: 10px 0;
+}
+
+.saque-pix {
+  font-size: 12px;
+  color: #666;
+  margin: 5px 0;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+  margin-bottom: 30px;
+}
+
+.stat-card {
+  background: white;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  text-align: center;
+}
+
+.stat-number {
+  font-size: 32px;
+  font-weight: bold;
+  color: #667eea;
+  margin: 10px 0;
+}
+
+.stat-label {
+  color: #999;
+  font-size: 14px;
+}
+
+.compra-card {
+  background: white;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.compra-info {
+  flex: 1;
+  min-width: 250px;
+}
+
+.compra-produto {
+  font-size: 18px;
+  font-weight: bold;
+  color: #667eea;
+  margin: 10px 0;
+}
+
+.compra-valor {
+  font-size: 16px;
+  color: #666;
+  margin: 5px 0;
+}
+
+.compra-renda {
+  font-size: 14px;
+  color: #28a745;
+  margin: 5px 0;
+}
+
+.compra-status {
+  display: inline-block;
+  padding: 5px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: bold;
+  margin-top: 10px;
+}
+
+.status-ativo {
+  background: #d4edda;
+  color: #155724;
+}
+
+.debug-info {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 5px;
+  padding: 15px;
+  margin: 20px 0;
+  font-family: monospace;
+  font-size: 12px;
+  color: #495057;
+}
+
+.refresh-btn {
+  background: #007bff;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: bold;
+  margin: 10px 0;
+}
+
+.refresh-btn:hover {
+  background: #0056b3;
+}
+
+/* ===== MODAL STYLES ===== */
+.modal {
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.modal.show {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal-content {
+  background-color: white;
+  padding: 30px;
+  border-radius: 10px;
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.3);
+  width: 90%;
+  max-width: 500px;
+  animation: slideDown 0.3s ease-in-out;
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-50px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #f0f0f0;
+  padding-bottom: 15px;
+}
+
+.modal-header h2 {
+  font-size: 22px;
+  color: #333;
+  margin: 0;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 28px;
+  cursor: pointer;
+  color: #999;
+  transition: color 0.3s;
+}
+
+.modal-close:hover {
+  color: #333;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: bold;
+  color: #333;
+  font-size: 14px;
+}
+
+.form-group input,
+.form-group textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  font-family: Arial, sans-serif;
+  font-size: 14px;
+  transition: borders 0.3s;
+  box-sizing: border-box;
+}
+
+.form-group select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  font-family: Arial, sans-serif;
+  font-size: 14px;
+  background: white;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.form-group input:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 5px rgba(102, 126, 234, 0.3);
+}
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.form-group small {
+  display: block;
+  margin-top: 5px;
+  color: #999;
+  font-size: 12px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 25px;
+  justify-content: flex-end;
+}
+
+.btn-save {
+  background: #28a745;
+  color: white;
+  padding: 12px 25px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.3s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-save:hover:not(:disabled) {
+  background: #218838;
+  transform: translateY(-2px);
+  box-shadow: 0 3px 10px rgba(40, 167, 69, 0.3);
+}
+
+.btn-save:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.btn-cancel {
+  background: #6c757d;
+  color: white;
+  padding: 12px 25px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.3s;
+}
+
+.btn-cancel:hover {
+  background: #5a6268;
+}
+
+.loading-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: white;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.alert-message {
+  padding: 12px 15px;
+  border-radius: 5px;
+  margin-bottom: 15px;
+  display: none;
+  animation: slideDown 0.3s ease-in-out;
+}
+
+.alert-message.show {
+  display: block;
+}
+
+.alert-message.success {
+  background: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.alert-message.error {
+  background: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+.alert-message strong {
+  font-weight: bold;
+}
+
+/* ===== BOTÃO DELETAR ===== */
+.btn-delete {
+  background: #dc3545;
+  color: white;
+  padding: 10px 15px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.3s;
+  font-size: 12px;
+}
+
+.btn-delete:hover:not(:disabled) {
+  background: #c82333;
+  transform: translateY(-2px);
+  box-shadow: 0 3px 10px rgba(220, 53, 69, 0.3);
+}
+
+.btn-delete:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+/* ===== MODAL CONFIRMAÇÃO ===== */
+.modal-confirmation {
+  display: none;
+  position: fixed;
+  z-index: 1001;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.6);
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.modal-confirmation.show {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.confirmation-content {
+  background: white;
+  padding: 30px;
+  border-radius: 10px;
+  box-shadow: 0 5px 25px rgba(0, 0, 0, 0.4);
+  width: 90%;
+  max-width: 400px;
+  text-align: center;
+  animation: slideDown 0.3s ease-in-out;
+}
+
+.confirmation-icon {
+  font-size: 48px;
+  margin-bottom: 15px;
+}
+
+.confirmation-content h2 {
+  color: #333;
+  margin-bottom: 10px;
+  font-size: 20px;
+}
+
+.confirmation-content p {
+  color: #666;
+  margin-bottom: 25px;
+  line-height: 1.6;
+}
+
+.confirmation-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.btn-confirm-delete {
+  background: #dc3545;
+  color: white;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.3s;
+}
+
+.btn-confirm-delete:hover {
+  background: #c82333;
+}
+
+.btn-confirm-cancel {
+  background: #6c757d;
+  color: white;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.3s;
+}
+
+.btn-confirm-cancel:hover {
+  background: #5a6268;
+}
+
+/* ===== BOTÕES DE EXPORTAÇÃO ===== */
+.export-buttons {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  align-items: center;
+}
+
+.export-buttons select {
+  border-radius: 5px;
+  border: 1px solid #ccc;
+  padding: 10px 12px;
+  font-size: 14px;
+  cursor: pointer;
+  color: #333;
+  background: white;
+}
+
+.btn-export {
+  background: #ffc107;
+  color: #333;
+  padding: 10px 15px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.3s;
+  font-size: 14px;
+}
+
+.btn-export:hover {
+  background: #e0a800;
+  transform: translateY(-2px);
+}
+
+.global-export-widget {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 9999;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  padding: 10px 12px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.12);
+}
+
+.global-export-widget select {
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  padding: 8px 10px;
+  font-size: 14px;
+  min-width: 150px;
+}
+
+/* ===== TABELA RELATÓRIOS ===== */
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  margin-top: 20px;
+}
+
+.report-table thead {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+}
+
+.report-table th,
+.report-table td {
+  padding: 15px;
+  text-align: left;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.report-table th {
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.report-table tbody tr:hover {
+  background: #f8f9fa;
+}
+
+.report-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* ===== CARDS ESTATÍSTICAS RELATÓRIO ===== */
+.report-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 15px;
+  margin-bottom: 30px;
+}
+
+.report-stat-card {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  padding: 20px;
+  border-radius: 10px;
+  text-align: center;
+  box-shadow: 0 3px 10px rgba(102, 126, 234, 0.2);
+}
+
+.report-stat-value {
+  font-size: 32px;
+  font-weight: bold;
+  margin: 10px 0;
+}
+
+.report-stat-label {
+  font-size: 14px;
+  opacity: 0.9;
+}
+
+/* ===== MEDIA QUERIES RESPONSIVIDADE ===== */
+
+/* Tablets e telas menores */
+@media (max-width: 768px) {
+  .deposito-card {
+    flex-wrap: wrap;
+    min-height: auto;
+    padding: 20px;
+    gap: 15px;
+  }
+
+  .deposito-info {
+    min-width: 100%;
+    flex-basis: 100%;
+  }
+
+  .deposito-actions {
+    min-width: 100%;
+    flex-basis: 100%;
+    flex-direction: row;
+  }
+
+  .btn {
+    flex: 1;
+    min-width: 100px;
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+
+  .btn-delete {
+    flex: 1;
+    min-width: 100px;
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+}
+
+/* Celulares pequenos */
+@media (max-width: 480px) {
+  .container {
+    padding: 10px;
+  }
+
+  .deposito-card {
+    padding: 15px;
+    gap: 10px;
+  }
+
+  .deposito-info {
+    min-width: 100%;
+  }
+
+  .deposito-actions {
+    min-width: 100%;
+  }
+
+  .btn {
+    padding: 10px 8px;
+    font-size: 11px;
+  }
+
+  .tab-btn {
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+
+  header h1 {
+    font-size: 20px;
+  }
+
+  .report-stats {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  }
+
+  .report-stat-card {
+    padding: 15px;
+  }
+
+  .report-stat-value {
+    font-size: 24px;
+  }
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+  <div id="global-export-widget" class="global-export-widget">
+    <select id="export-format-select-global">
+      <option value="xlsx">Excel (.xlsx)</option>
+      <option value="csv">CSV (.csv)</option>
+      <option value="pdf">PDF (.pdf)</option>
+    </select>
+    <button class="btn-export" onclick="exportarDadosVisiveis()" style="background: #28a745; color: white;">
+      📥 Exportar tabela
+    </button>
+  </div>
+
+  <header>
+    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+      <h1>🛡️ Painel Administrativo</h1>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <div style="position: relative;">
+          <button id="notificationBell" class="tab-btn" style="position: relative;" onclick="toggleNotificationDropdown()">
+            🔔
+            <span id="notificationCount" class="notification-badge">0</span>
+          </button>
+          <div id="notificationDropdown" class="notification-dropdown"></div>
+        </div>
+        <button id="soundToggleBtn" class="refresh-btn" onclick="toggleSound()" style="background: #ffc107; color: #333;">🔊 Som ON</button>
+      </div>
+    </div>
+    <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 12px;">
+      <input id="uid-filtro" type="text" placeholder="UID para filtro (sem login)" style="padding: 10px; border-radius: 7px; border: 1px solid #ccc;" />
+      <button class="refresh-btn" onclick="aplicarFiltroUID()">🔍 Filtrar UID</button>
+      <button class="refresh-btn" onclick="limparFiltroUID()" style="background: #6c757d;">✖ Limpar Filtro</button>
+      <button class="refresh-btn" onclick="recarregarTudo()">🔄 Atualizar</button>
+      <div class="export-buttons" style="margin-left: 6px;">
+        <select id="export-format-select" style="min-width: 150px;">
+          <option value="xlsx">Excel (.xlsx)</option>
+          <option value="csv">CSV (.csv)</option>
+          <option value="pdf">PDF (.pdf)</option>
+        </select>
+        <button class="btn-export" onclick="exportarDadosVisiveis()" style="background: #28a745; color: white;">
+          📥 Exportar tabela atual
+        </button>
+      </div>
+      <button class="refresh-btn" onclick="window.open('dashboard.html','_blank')" style="background: #17a2b8;">📊 Dashboard Métricas</button>
+      <button class="refresh-btn" onclick="window.open('sistema_renda.html','_blank')" style="background: #28a745;">💰 Sistema Renda</button>
+      <button class="refresh-btn" onclick="window.open('historico_notificacoes.html','_blank')" style="background: #6f42c1;">🕘 Histórico Notificações</button>
+    </div>
+    <div id="status-filtro" style="margin-top: 10px; font-size: 14px; color: #333;">Filtro UID: todos</div>
+  </header>
+
+  <div id="debug-info" class="debug-info">
+    Status: Inicializando...<br>
+    Firebase: Carregando...<br>
+    Conexão: Testando...
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn active" onclick="abrirTab('depositos')">
+      📥 Depósitos
+    </button>
+    <button class="tab-btn" onclick="abrirTab('saques')">
+      📤 Saques
+    </button>
+    <button class="tab-btn" onclick="abrirTab('compras')">
+      🛒 Compras
+    </button>
+    <button class="tab-btn" onclick="abrirTab('ganhos')">
+      💰 Ganhos
+    </button>
+    <button class="tab-btn" onclick="abrirTab('renda')">
+      📈 Renda Diária
+    </button>
+    <button class="tab-btn" onclick="abrirTab('estatisticas')">
+      📊 Estatísticas
+    </button>
+    <button class="tab-btn" onclick="window.open('usuarios.html','_blank')">
+      👥 Usuários
+    </button>
+    <button class="tab-btn" onclick="abrirTab('relatorios')">
+      📊 Relatórios
+    </button>
+    <button class="tab-btn" onclick="window.location.href='admin_produtos.html'">
+      🛍️ Produtos
+    </button>
+    <button class="tab-btn" onclick="window.open('historico.html','_blank')" style="background: #28a745; color: white;">
+      📜 Histórico Financeiro
+    </button>
+  </div>
+
+  <!-- ABA DEPÓSITOS -->
+  <div id="tab-depositos" class="tab-content active">
+    
+    <h2 style="margin-bottom: 20px;">Depósitos Pendentes</h2>
+    
+    <div id="depositos-pendentes" class="depositos-list">
+      <div class="empty-state">
+        <div class="empty-state-icon">⏳</div>
+        <p>Carregando...</p>
+      </div>
+    </div>
+
+    <h2 style="margin: 40px 0 20px 0;">Depósitos Aprovados</h2>
+    
+    <div id="depositos-aprovados" class="depositos-list">
+      <div class="empty-state">
+        <div class="empty-state-icon">✅</div>
+        <p>Carregando...</p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ABA SAQUES -->
+  <div id="tab-saques" class="tab-content">
+    
+    <h2 style="margin-bottom: 20px;">Saques Pendentes</h2>
+    
+    <div id="saques-pendentes" class="depositos-list">
+      <div class="empty-state">
+        <div class="empty-state-icon">⏳</div>
+        <p>Carregando...</p>
+      </div>
+    </div>
+
+    <h2 style="margin: 40px 0 20px 0;">Saques Processados</h2>
+    
+    <div id="saques-processados" class="depositos-list">
+      <div class="empty-state">
+        <div class="empty-state-icon">✅</div>
+        <p>Carregando...</p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ABA COMPRAS -->
+  <div id="tab-compras" class="tab-content">
+    
+    <h2 style="margin-bottom: 20px;">Compras Realizadas</h2>
+    
+    <div id="compras-list" class="depositos-list">
+      <div class="empty-state">
+        <div class="empty-state-icon">🛒</div>
+        <p>Carregando...</p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ABA GANHOS -->
+  <div id="tab-ganhos" class="tab-content">
+    
+    <h2 style="margin-bottom: 20px;">Ganhos Registrados</h2>
+
+    <div class="stats">
+      <div class="stat-card">
+        <div class="stat-label">💰 Total de Ganhos</div>
+        <div class="stat-number" id="stat-total-ganhos-value">R$ 0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">📊 Registros</div>
+        <div class="stat-number" id="stat-total-ganhos-registros">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">📈 Média por Ganho</div>
+        <div class="stat-number" id="stat-media-ganhos">R$ 0</div>
+      </div>
+    </div>
+
+    <div id="ganhos-list" class="depositos-list">
+      <div class="empty-state">
+        <div class="empty-state-icon">💰</div>
+        <p>Carregando...</p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ABA RENDA DIÁRIA -->
+  <div id="tab-renda" class="tab-content">
+    
+    <h2 style="margin-bottom: 20px;">Renda Diária - Resumo</h2>
+
+    <div class="stats">
+      <div class="stat-card">
+        <div class="stat-label">💵 Renda Total Diária</div>
+        <div class="stat-number" id="stat-renda-total">R$ 0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">📊 Número de Produtos Ativos</div>
+        <div class="stat-number" id="stat-renda-produtos">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">📈 Renda Média por Produto</div>
+        <div class="stat-number" id="stat-renda-media">R$ 0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">📅 Últimas 24h</div>
+        <div class="stat-number" id="stat-renda-24h">R$ 0</div>
+      </div>
+    </div>
+
+    <h2 style="margin: 30px 0 20px 0;">Produtos com Renda Diária</h2>
+    
+    <div id="renda-list" class="depositos-list">
+      <div class="empty-state">
+        <div class="empty-state-icon">📦</div>
+        <p>Carregando...</p>
+      </div>
+    </div>
+
+    <h2 style="margin: 30px 0 20px 0;">Histórico de Renda</h2>
+    
+    <div id="renda-historico" class="depositos-list">
+      <div class="empty-state">
+        <div class="empty-state-icon">📜</div>
+        <p>Carregando...</p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ABA ESTATÍSTICAS -->
+  <div id="tab-estatisticas" class="tab-content">
+    
+    <h2 style="margin-bottom: 20px;">Resumo</h2>
+    
+    <div class="stats">
+      <div class="stat-card">
+        <div class="stat-label">Depósitos Pendentes</div>
+        <div class="stat-number" id="stat-depositos-pendentes">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Saques Pendentes</div>
+        <div class="stat-number" id="stat-saques-pendentes">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total em Depósitos</div>
+        <div class="stat-number" id="stat-total-depositos">R$ 0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total em Saques</div>
+        <div class="stat-number" id="stat-total-saques">R$ 0</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ABA USUÁRIOS -->
+  <div id="tab-usuarios" class="tab-content">
+    
+    <h2 style="margin-bottom: 20px;">👥 Gerenciamento de Usuários</h2>
+    
+    <div style="margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
+      <input type="text" id="input-filtro-usuario" placeholder="Filtrar por email ou UID..." style="flex: 1; min-width: 250px; padding: 10px; border: 2px solid #ddd; border-radius: 5px;">
+      <button onclick="filtrarUsuarios()" class="refresh-btn" style="background: #667eea;">🔍 Filtrar</button>
+      <button onclick="recarregarUsuarios()" class="refresh-btn" style="background: #28a745;">🔄 Atualizar</button>
+      <button onclick="abrirModalNovoUsuario()" class="refresh-btn" style="background: #17a2b8; font-size: 14px; padding: 15px 20px;">➕ Novo Usuário</button>
+    </div>
+
+    <div class="stats" style="margin-bottom: 20px;">
+      <div class="stat-card">
+        <div class="stat-label">👥 Total de Usuários</div>
+        <div class="stat-number" id="stat-total-usuarios">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">💰 Saldo Total</div>
+        <div class="stat-number" id="stat-saldo-total">R$ 0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">📊 Saldo Médio</div>
+        <div class="stat-number" id="stat-saldo-medio">R$ 0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">🏆 Maior Saldo</div>
+        <div class="stat-number" id="stat-maior-saldo">R$ 0</div>
+      </div>
+    </div>
+    
+    <h2 style="margin: 30px 0 20px 0;">Detalhes</h2>
+    
+    <div id="usuarios-list" class="depositos-list">
+      <div class="empty-state">
+        <div class="empty-state-icon">👥</div>
+        <p>Carregando usuários...</p>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<audio id="notificationSound" src="https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg" preload="auto"></audio>
+
+<script>
+
+const firebaseConfig={
+  apiKey:"AIzaSyAcVPgUHbL4N9U1-H68klmGKWQF-YGleyc",
+  authDomain:"vastbitloud-2872a.firebaseapp.com",
+  projectId:"vastbitloud-2872a"
+};
+
+let db = null;
+let auth = null;
+let filtroUsuarioAtivo = false;
+let usuarioAtual = null;
+let uidFiltro = "";
+let rendaDiariaIntervalId = null;
+
+let notificacoesUnsubscribe = null;
+let observadoresEventosUnsubscribe = [];
+let notifs = [];
+let notificacoesNaoLidasCount = 0;
+let somAtivo = true;
+let primeiraCargaNotificacoes = true;
+let primeiraCargaUsuarios = true;
+let primeiraCargaSaques = true;
+
+let saquesStatusMap = new Map();
+let usuariosStatusMap = new Map();
+
+const formatador = new Intl.NumberFormat(
+  "pt-BR",
+  { style: "currency", currency: "BRL" }
+);
+
+// =============================
+// GERAR NÚMERO DO USUÁRIO
+// =============================
+
+function gerarNumeroUsuario(uid) {
+  // Gera um número baseado no UID (últimos 4 caracteres convertidos para número)
+  const last4 = uid.slice(-4);
+  const num = parseInt(last4, 16) % 10000; // Converte hex para decimal e limita a 4 dígitos
+  return num.toString().padStart(4, '0');
+}
+
+// =============================
+// ADICIONAR REGISTRO DE HISTÓRICO
+// =============================
+
+async function adicionarRegistroHistorico(tipo, valor, descricao, uidUsuario, status="concluido") {
+  try {
+    // Se não houver UID especificado, usar do usuário autenticado
+    let uid = uidUsuario;
+    if (!uid && auth && auth.currentUser) {
+      uid = auth.currentUser.uid;
+    }
+
+    if (!uid) {
+      console.warn("Não foi possível obter UID do usuário para registrar no histórico");
+      return false;
+    }
+
+    await db.collection("historico").add({
+      uid: uid,
+      tipo: tipo,
+      valor: parseFloat(valor) || 0,
+      descricao: descricao || "",
+      status: status || "concluido",
+      data: firebase.firestore.FieldValue.serverTimestamp()
+    });
+
+    console.log(`✅ Registro de ${tipo} adicionado ao histórico`);
+    return true;
+
+  } catch (error) {
+    console.error("Erro ao adicionar registro de histórico:", error);
+    return false;
+  }
+}
+
+// =============================
+// NOTIFICAÇÕES AUTOMÁTICAS
+// =============================
+
+const tiposNotificacao = {
+  deposito_pendente: {
+    titulo: "Depósito pendente",
+    mensagem: "Um novo depósito está aguardando confirmação.",
+    icone: "💰",
+    cor: "#28a745"
+  },
+  novo_usuario: {
+    titulo: "Novo usuário cadastrado",
+    mensagem: "Um novo usuário foi registrado no sistema.",
+    icone: "👤",
+    cor: "#007bff"
+  },
+  usuario_bloqueado: {
+    titulo: "Usuário bloqueado",
+    mensagem: "Um usuário foi bloqueado pelo sistema.",
+    icone: "🚫",
+    cor: "#dc3545"
+  },
+  fraude_detectada: {
+    titulo: "Fraude detectada",
+    mensagem: "Atividade suspeita foi detectada e o usuário foi bloqueado.",
+    icone: "⚠️",
+    cor: "#ffc107"
+  },
+  usuario_suspenso: {
+    titulo: "Usuário suspenso",
+    mensagem: "Um usuário foi suspenso temporariamente.",
+    icone: "⏸️",
+    cor: "#6f42c1"
+  },
+  solicitacao_saque: {
+    titulo: "Novo saque pendente",
+    mensagem: "Um usuário solicitou um saque após a primeira carga.",
+    icone: "💸",
+    cor: "#fd7e14"
+  }
+};
+
+async function criarNotificacao(tipo, titulo, mensagem, uidUsuario = "", valor = 0) {
+  if (!db) {
+    console.warn("Firestore não inicializado para criar notificação");
+    return;
+  }
+
+  try {
+    await db.collection("notificacoes").add({
+      tipo: tipo || "geral",
+      titulo: titulo || "",
+      mensagem: mensagem || "",
+      uidUsuario: uidUsuario || "",
+      valor: Number(valor) || 0,
+      data: firebase.firestore.FieldValue.serverTimestamp(),
+      lida: false
+    });
+
+    console.log("✅ Notificação criada:", tipo, titulo);
+
+  } catch (error) {
+    console.error("❌ Erro ao criar notificação:", error);
+  }
+}
+
+function tocarAlerta() {
+  if (!somAtivo) return;
+  const audio = document.getElementById("notificationSound");
+  if (!audio) return;
+
+  audio.currentTime = 0;
+  audio.play().catch(err => console.warn("Não foi possível tocar som:", err));
+}
+
+function toggleSound() {
+  somAtivo = !somAtivo;
+  const btn = document.getElementById("soundToggleBtn");
+  btn.textContent = somAtivo ? "🔊 Som ON" : "🔇 Som OFF";
+}
+
+function atualizarContadorNotificacoes() {
+  const badge = document.getElementById("notificationCount");
+  badge.textContent = notificacoesNaoLidasCount > 0 ? (notificacoesNaoLidasCount > 99 ? "99+" : notificacoesNaoLidasCount) : "0";
+  badge.style.display = notificacoesNaoLidasCount > 0 ? "flex" : "none";
+}
+
+function montarItemNotificacao(item) {
+  const data = item.data && item.data.toDate ? item.data.toDate() : new Date();
+  const textoData = data.toLocaleString("pt-BR");
+  const config = tiposNotificacao[item.tipo] || { icone: "🔔", cor: "#666" };
+  const statusTexto = item.lida ? "Lida" : "Não lida";
+  const statusClasse = item.lida ? "lida" : "nao-lida";
+
+  return `
+    <div class="notification-item ${item.tipo} ${item.lida ? "" : "unread"} ${item.isNew ? "new" : ""}" onclick="marcarNotificacaoComoLida('${item.id}')">
+      <div class="notification-header">
+        <span class="notification-icon">${config.icone}</span>
+        <span class="notification-title">${item.titulo}</span>
+        <span class="notification-status ${statusClasse}">${statusTexto}</span>
+      </div>
+      <div class="notification-description">${item.mensagem}</div>
+      <div class="notification-date">${textoData}</div>
+    </div>
+  `;
+}
+
+function atualizarListaNotificacoes() {
+  const dropdown = document.getElementById("notificationDropdown");
+  if (!dropdown) return;
+
+  const botoesAcoes = `
+    <div class="notification-actions" style="display: flex; gap: 8px; padding: 10px; border-bottom: 1px solid #ddd; background: #f8f9fa;">
+      <button class="refresh-btn" style="background: #007bff; color: #fff; font-size: 12px; padding: 6px 10px;" onclick="marcarTodasNotificacoesComoLidas(event)">Marcar todas como lidas</button>
+      <button class="refresh-btn" style="background: #dc3545; color: #fff; font-size: 12px; padding: 6px 10px;" onclick="limparTodasNotificacoes(event)">Limpar todas notificações</button>
+    </div>
+  `;
+
+  if (notifs.length === 0) {
+    dropdown.innerHTML = `${botoesAcoes}
+      <div class="notification-item">Nenhuma notificação encontrada.</div>`;
+    return;
+  }
+
+  const itens = notifs.map(n => montarItemNotificacao(n)).join("");
+  dropdown.innerHTML = botoesAcoes + itens;
+}
+
+function toggleNotificationDropdown() {
+  const dropdown = document.getElementById("notificationDropdown");
+  dropdown.classList.toggle("active");
+}
+
+async function marcarNotificacaoComoLida(id) {
+  try {
+    await db.collection("notificacoes").doc(id).update({ lida: true });
+    const notif = notifs.find(n => n.id === id);
+    if (notif) notif.lida = true;
+    notificacoesNaoLidasCount = Math.max(0, notificacoesNaoLidasCount - 1);
+    atualizarContadorNotificacoes();
+    atualizarListaNotificacoes();
+  } catch (error) {
+    console.error("Erro ao marcar notificação como lida:", error);
+  }
+}
+
+async function marcarTodasNotificacoesComoLidas(event) {
+  if(event && event.stopPropagation) event.stopPropagation();
+  if (!db) return;
+
+  try {
+    const snapshot = await db.collection("notificacoes").where("lida", "==", false).get();
+    if (snapshot.empty) return;
+
+    const batch = db.batch();
+    snapshot.forEach(doc => batch.update(doc.ref, { lida: true }));
+    await batch.commit();
+
+    notificacoesNaoLidasCount = 0;
+    atualizarContadorNotificacoes();
+    atualizarListaNotificacoes();
+
+  } catch (error) {
+    console.error("Erro ao marcar todas notificações como lidas:", error);
+  }
+}
+
+async function limparTodasNotificacoes(event) {
+  if(event && event.stopPropagation) event.stopPropagation();
+  if (!db) return;
+
+  if (!confirm("Deseja realmente limpar todas as notificações?")) return;
+
+  try {
+    const snapshot = await db.collection("notificacoes").get();
+
+    if (snapshot.empty) {
+      alert("Não há notificações para limpar.");
+      return;
+    }
+
+    const batch = db.batch();
+    snapshot.forEach(doc => batch.delete(doc.ref));
+    await batch.commit();
+
+    showAlertVisual("Todas as notificações foram limpas com sucesso.", "success");
+    // O listener em tempo real deve atualizar a lista e o contador automaticamente
+  } catch (error) {
+    console.error("Erro ao limpar todas as notificações:", error);
+    showAlertVisual("Erro ao limpar todas as notificações.", "error");
+  }
+}
+
+function inicializarNotificacoesRealtime() {
+  if (!db) return;
+
+  const query = db.collection("notificacoes").orderBy("data", "desc").limit(50);
+
+  if (notificacoesUnsubscribe) {
+    notificacoesUnsubscribe();
+  }
+
+  notificacoesUnsubscribe = query.onSnapshot(snapshot => {
+    let novas = [];
+
+    snapshot.docChanges().forEach(change => {
+      const doc = change.doc;
+      const data = { id: doc.id, ...doc.data() };
+
+      if (change.type === "added") {
+        if (!primeiraCargaNotificacoes && !data.lida) {
+          showAlertVisual(`Nova notificação: ${data.titulo}`, "success");
+          tocarAlerta();
+          data.isNew = true;
+          setTimeout(() => {
+            const item = notifs.find(n => n.id === data.id);
+            if (item) item.isNew = false;
+            atualizarListaNotificacoes();
+          }, 1200);
+        }
+      }
+
+      if (change.type === "added" || change.type === "modified") {
+        novas.push({ id: doc.id, ...doc.data() });
+      }
+    });
+
+    if (snapshot.empty) {
+      notifs = [];
+    } else {
+      notifs = novas.sort((a,b)=> (b.data && b.data.toDate ? b.data.toDate() : new Date()) - (a.data && a.data.toDate ? a.data.toDate() : new Date()));
+    }
+
+    notificacoesNaoLidasCount = notifs.filter(n=> n.lida === false).length;
+    atualizarContadorNotificacoes();
+    atualizarListaNotificacoes();
+
+    primeiraCargaNotificacoes = false;
+
+  }, error => {
+    console.error("Erro no listener de notificacoes:", error);
+  });
+}
+
+async function criarNotificacaoTrigger(tipo, uidUsuario = "", valor = 0, mensagemCustom = null) {
+  const config = tiposNotificacao[tipo];
+  if (!config) {
+    console.warn("Tipo de notificação não encontrado:", tipo);
+    return;
+  }
+  const titulo = config.titulo;
+  const mensagem = mensagemCustom || config.mensagem;
+  await criarNotificacao(tipo, titulo, mensagem, uidUsuario, valor);
+}
+
+function inicializarEventosDeNotificacoes() {
+  if (!db) return;
+
+  // Limpar listeners anteriores
+  observadoresEventosUnsubscribe.forEach(fn => typeof fn === 'function' && fn());
+  observadoresEventosUnsubscribe = [];
+
+  // Depósitos pendentes
+  const unsubscribeDepositos = db.collection("depositos").onSnapshot(snapshot => {
+    const isInicialDepositos = primeiraCargaNotificacoes;
+
+    snapshot.docChanges().forEach(change => {
+      const doc = change.doc;
+      const deposito = doc.data();
+
+      if (change.type === "added" && !isInicialDepositos && deposito.status === "pendente") {
+        criarNotificacaoTrigger("deposito_pendente", deposito.uid, deposito.valor);
+      }
+    });
+
+    primeiraCargaNotificacoes = false;
+  });
+  observadoresEventosUnsubscribe.push(unsubscribeDepositos);
+
+  // Novos usuários e bloqueios
+  const unsubscribeUsers = db.collection("users").onSnapshot(snapshot => {
+    const isInicial = primeiraCargaUsuarios;
+
+    snapshot.docChanges().forEach(change => {
+      const doc = change.doc;
+      const user = doc.data();
+      const previous = usuariosStatusMap.get(doc.id);
+
+      if (change.type === "added") {
+        if (!isInicial) {
+          criarNotificacaoTrigger("novo_usuario", doc.id, 0);
+        }
+      }
+
+      if (change.type === "modified") {
+        if (previous) {
+          if (!previous.bloqueado && user.bloqueado) {
+            criarNotificacaoTrigger("usuario_bloqueado", doc.id, 0);
+          }
+          if (!previous.bloqueadoPorFraude && user.bloqueadoPorFraude) {
+            criarNotificacaoTrigger("fraude_detectada", doc.id, 0);
+          }
+          if (!previous.suspenso && user.suspenso) {
+            criarNotificacaoTrigger("usuario_suspenso", doc.id, 0);
+          }
+        }
+      }
+
+      usuariosStatusMap.set(doc.id, user);
+    });
+
+    primeiraCargaUsuarios = false;
+  });
+  observadoresEventosUnsubscribe.push(unsubscribeUsers);
+
+  // Saques
+  const unsubscribeSaques = db.collection("saques").onSnapshot(snapshot => {
+    const isInicial = primeiraCargaSaques;
+
+    snapshot.docChanges().forEach(change => {
+      const doc = change.doc;
+      const saque = doc.data();
+      const previousStatus = saquesStatusMap.get(doc.id);
+
+      if (change.type === "added") {
+        if (!isInicial && saque.status === "pendente") {
+          criarNotificacaoTrigger("solicitacao_saque", saque.uid, saque.valor, `Solicitação de saque: R$ ${formatador.format(saque.valor)} de ${saque.uid}`);
+        }
+      }
+
+      if (change.type === "modified" && previousStatus && previousStatus !== saque.status) {
+        if (saque.status === "processado") {
+          criarNotificacaoTrigger("saque_aprovado", saque.uid, saque.valor, `Saque aprovado: R$ ${formatador.format(saque.valor)} de ${saque.uid}`);
+        } else if (saque.status === "rejeitado") {
+          criarNotificacaoTrigger("saque_recusado", saque.uid, saque.valor, `Saque recusado: R$ ${formatador.format(saque.valor)} de ${saque.uid}`);
+        }
+      }
+
+      saquesStatusMap.set(doc.id, saque.status);
+    });
+
+    primeiraCargaSaques = false;
+  });
+  observadoresEventosUnsubscribe.push(unsubscribeSaques);
+}
+
+function showAlertVisual(mensagem, tipo="success") {
+  // Reaproveitar alertas já existentes ou criar temporário
+  const alerta = document.createElement("div");
+  alerta.className = `alert-message show ${tipo}`;
+  alerta.innerHTML = `<strong>${tipo === 'success' ? '✅' : '❌'}</strong> ${mensagem}`;
+  document.body.appendChild(alerta);
+  setTimeout(()=>alerta.remove(), 4000);
+}
+
+// =============================
+// FUNÇÕES DE MOVIMENTAÇÃO
+// =============================
+
+async function comprarProduto(uid, nome, preco) {
+  const descricao = `Compra do produto ${nome}`;
+  const valor = parseFloat(preco) || 0;
+
+  // Aqui você pode inserir lógica de compra/nova transação se aplicável.
+  await adicionarRegistroHistorico("compra", valor, descricao, uid, "concluido");
+  return true;
+}
+
+async function deposito(uid, valor, descricao = "Depósito") {
+  const valorFloat = parseFloat(valor) || 0;
+  await adicionarRegistroHistorico("deposito", valorFloat, descricao, uid, "concluido");
+  return true;
+}
+
+async function saque(uid, valor, descricao = "Saque") {
+  const valorFloat = parseFloat(valor) || 0;
+  await adicionarRegistroHistorico("saque", valorFloat, descricao, uid, "concluido");
+  return true;
+}
+
+async function pagamento(uid, valor, descricao = "Pagamento") {
+  const valorFloat = parseFloat(valor) || 0;
+  await adicionarRegistroHistorico("pagamento", valorFloat, descricao, uid, "concluido");
+  return true;
+}
+
+async function rendimento(uid, valor, descricao = "Rendimento") {
+  const valorFloat = parseFloat(valor) || 0;
+  await adicionarRegistroHistorico("rendimento", valorFloat, descricao, uid, "concluido");
+  return true;
+}
+
+// =============================
+// INICIALIZAR FIREBASE
+// =============================
+
+function inicializarFirebase() {
+  try {
+    if(!firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+    }
+    db = firebase.firestore();
+    auth = firebase.auth();
+    
+    atualizarDebug("Firebase: ✅ Conectado");
+    atualizarDebug("Conexão: Testando Firestore...");
+    
+    // Testar conexão básica
+    testarConexao();
+    
+  } catch(error) {
+    atualizarDebug("Firebase: ❌ Erro - " + error.message);
+    console.error("Erro Firebase:", error);
+  }
+}
+
+function testarConexao() {
+  // Teste simples de leitura
+  db.collection("depositos").limit(1).get()
+    .then(snapshot => {
+      atualizarDebug("Conexão: ✅ Firestore OK");
+      atualizarDebug("Status: Carregando dados...");
+      carregarDados();
+      scheduleGerarRendaDiaria();
+    })
+    .catch(error => {
+      atualizarDebug("Conexão: ❌ Erro - " + error.message);
+      console.error("Erro Firestore:", error);
+      
+      // Mostrar erro nos containers
+      mostrarErro("depositos-pendentes", error.message);
+      mostrarErro("depositos-aprovados", error.message);
+      mostrarErro("saques-pendentes", error.message);
+      mostrarErro("saques-processados", error.message);
+    });
+}
+
+function atualizarDebug(mensagem) {
+  const debug = document.getElementById("debug-info");
+  const timestamp = new Date().toLocaleTimeString();
+  debug.innerHTML += `<br>${timestamp}: ${mensagem}`;
+}
+
+function mostrarErro(containerId, erro) {
+  document.getElementById(containerId).innerHTML = `
+    <div class="empty-state">
+      <div class="empty-state-icon">❌</div>
+      <p>Erro: ${erro}</p>
+      <small>Verifique as regras de segurança do Firestore</small>
+    </div>
+  `;
+}
+
+// =============================
+// CARREGAR DADOS
+// =============================
+
+async function carregarDados() {
+  carregarDepositosPendentes(uidFiltro);
+  carregarDepositosAprovados(uidFiltro);
+  carregarSaquesPendentes(uidFiltro);
+  carregarSaquesProcessados(uidFiltro);
+  await verificarExpiracaoProdutos();
+  await gerarRendaDiaria();
+  carregarCompras(uidFiltro);
+  carregarGanhos(uidFiltro);
+  carregarRenda(uidFiltro);
+  carregarUsuarios();
+  atualizarEstatisticas();
+
+  // Inicializar notificações em tempo real (após carregar dados básicos)
+  inicializarNotificacoesRealtime();
+  inicializarEventosDeNotificacoes();
+}
+
+function aplicarFiltroUID() {
+  uidFiltro = document.getElementById("uid-filtro").value.trim();
+  if (!uidFiltro) {
+    alert("Por favor, insira um UID para filtrar.");
+    return;
+  }
+  document.getElementById("status-filtro").innerText = `Filtro UID: ${uidFiltro}`;
+  carregarDados();
+}
+
+function limparFiltroUID() {
+  uidFiltro = "";
+  document.getElementById("uid-filtro").value = "";
+  document.getElementById("status-filtro").innerText = "Filtro UID: todos";
+  carregarDados();
+}
+
+// =============================
+// CARREGAR DEPÓSITOS PENDENTES
+// =============================
+
+function carregarDepositosPendentes() {
+
+  console.log("Carregando depósitos pendentes...");
+
+  let query = db.collection("depositos").where("status", "==", "pendente");
+  if (uidFiltro) query = query.where("uid", "==", uidFiltro);
+  query = query.limit(50);
+  console.log("Consulta Depósitos Pendentes", uidFiltro ? `UID=${uidFiltro}` : "sem UID", query); 
+  query.get()
+    .then(snapshot => {
+
+      console.log("Depósitos pendentes carregados:", snapshot.size);
+
+      const container = 
+        document.getElementById("depositos-pendentes");
+
+      if(snapshot.empty) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">⏳</div>
+            <p>Nenhum depósito pendente</p>
+          </div>
+        `;
+        return;
+      }
+
+      let html = "";
+
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        let dataFormatada = "Data indisponível";
+        if (data.data) {
+          if (typeof data.data.toDate === 'function') {
+            dataFormatada = new Date(data.data.toDate()).toLocaleString("pt-BR");
+          } else if (data.data instanceof Date) {
+            dataFormatada = data.data.toLocaleString("pt-BR");
+          } else if (typeof data.data === 'string') {
+            dataFormatada = new Date(data.data).toLocaleString("pt-BR");
+          } else if (typeof data.data === 'number') {
+            dataFormatada = new Date(data.data).toLocaleString("pt-BR");
+          }
+        }
+
+        html += `
+          <div class="deposito-card">
+            <div class="deposito-info">
+              <div class="deposito-valor">
+                ${formatador.format(data.valor)}
+              </div>
+              <div class="deposito-uid">UID: ${data.uid}</div>
+              <div class="deposito-data">${dataFormatada}</div>
+              <span class="deposito-status status-pendente">
+                Pendente
+              </span>
+            </div>
+            <div class="deposito-actions">
+              <button class="btn btn-aprovar" 
+                onclick="aprovarDeposito('${doc.id}')">
+                ✅ Aprovar
+              </button>
+              <button class="btn btn-rejeitar" 
+                onclick="rejeitarDeposito('${doc.id}')">
+                ❌ Rejeitar
+              </button>
+            </div>
+          </div>
+        `;
+      });
+
+      container.innerHTML = html;
+
+    }).catch(error => {
+      console.error("Erro ao carregar depósitos:", error);
+      mostrarErro("depositos-pendentes", error.message);
+    });
+
+}
+
+// =============================
+// CARREGAR DEPÓSITOS APROVADOS
+// =============================
+
+function carregarDepositosAprovados() {
+
+  let query = db.collection("depositos").where("status", "==", "aprovado");
+  if (uidFiltro) query = query.where("uid", "==", uidFiltro);
+  query = query.limit(20);
+  query.get()
+    .then(snapshot => {
+
+      const container = 
+        document.getElementById("depositos-aprovados");
+
+      if(snapshot.empty) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">✅</div>
+            <p>Nenhum depósito aprovado</p>
+          </div>
+        `;
+        return;
+      }
+
+      let html = "";
+
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        let dataFormatada = "Data indisponível";
+        if (data.data) {
+          if (typeof data.data.toDate === 'function') {
+            dataFormatada = new Date(data.data.toDate()).toLocaleString("pt-BR");
+          } else if (data.data instanceof Date) {
+            dataFormatada = data.data.toLocaleString("pt-BR");
+          } else if (typeof data.data === 'string') {
+            dataFormatada = new Date(data.data).toLocaleString("pt-BR");
+          } else if (typeof data.data === 'number') {
+            dataFormatada = new Date(data.data).toLocaleString("pt-BR");
+          }
+        }
+
+        const creditadoTexto = data.creditado 
+          ? "✅ Crédito realizado" 
+          : "⏳ Aguardando crédito";
+
+        html += `
+          <div class="deposito-card">
+            <div class="deposito-info">
+              <div class="deposito-valor">
+                ${formatador.format(data.valor)}
+              </div>
+              <div class="deposito-uid">UID: ${data.uid}</div>
+              <div class="deposito-data">${dataFormatada}</div>
+              <span class="deposito-status status-aprovado">
+                ${creditadoTexto}
+              </span>
+            </div>
+            <div class="deposito-actions">
+              <button class="btn" style="background: #007bff; color: white;" 
+                onclick="editarDeposito('${doc.id}', '${data.valor}', '${data.uid}')">
+                ✏️ Editar
+              </button>
+              <button class="btn btn-rejeitar" 
+                onclick="deletarDeposito('${doc.id}')">
+                🗑️ Deletar
+              </button>
+            </div>
+          </div>
+        `;
+      });
+
+      container.innerHTML = html;
+
+    }).catch(error => {
+      console.error("Erro ao carregar depósitos aprovados:", error);
+      mostrarErro("depositos-aprovados", error.message);
+    });
+
+}
+
+// =============================
+// APROVAR DEPÓSITO
+// =============================
+
+async function aprovarDeposito(docId) {
+
+  if(!confirm("Aprovar este depósito?")) return;
+
+  try {
+    // Buscar dados do depósito
+    const depositoDoc = await db.collection("depositos").doc(docId).get();
+    const depositoData = depositoDoc.data();
+
+    await db.collection("depositos")
+      .doc(docId)
+      .update({
+        status: "aprovado"
+      });
+
+    // Registrar no histórico
+    if (depositoData) {
+      await adicionarRegistroHistorico(
+        "deposito",
+        depositoData.valor,
+        `Depósito aprovado - ${depositoData.uid}`,
+        depositoData.uid,
+        "concluido"
+      );
+    }
+
+    alert("✅ Depósito aprovado! Saldo será atualizado automaticamente.");
+    recarregarTudo();
+
+  } catch(error) {
+    console.error("Erro:", error);
+    alert("❌ Erro ao aprovar depósito: " + error.message);
+  }
+
+}
+
+// =============================
+// REJEITAR DEPÓSITO
+// =============================
+
+async function rejeitarDeposito(docId) {
+
+  if(!confirm("Rejeitar este depósito?")) return;
+
+  try {
+    // Buscar dados do depósito
+    const depositoDoc = await db.collection("depositos").doc(docId).get();
+    const depositoData = depositoDoc.data();
+
+    await db.collection("depositos")
+      .doc(docId)
+      .update({
+        status: "rejeitado"
+      });
+
+    // Registrar no histórico
+    if (depositoData) {
+      await adicionarRegistroHistorico(
+        "deposito",
+        depositoData.valor,
+        `Depósito rejeitado - ${depositoData.uid}`,
+        depositoData.uid,
+        "rejeitado"
+      );
+    }
+
+    alert("✅ Depósito rejeitado!");
+    recarregarTudo();
+
+  } catch(error) {
+    console.error("Erro:", error);
+    alert("❌ Erro ao rejeitar: " + error.message);
+  }
+
+}
+
+// =============================
+// EDITAR DEPÓSITO
+// =============================
+
+async function editarDeposito(docId, valorAtual, uid) {
+
+  const novoValor = prompt(`Editar valor do depósito (UID: ${uid})\n\nValor atual: R$ ${valorAtual}`, valorAtual);
+  
+  if(novoValor === null) return;
+  
+  const valor = parseFloat(novoValor);
+  
+  if(isNaN(valor) || valor <= 0) {
+    alert("❌ Valor inválido!");
+    return;
+  }
+
+  if(!confirm(`Confirmar alteração do valor para R$ ${valor.toFixed(2)}?`)) return;
+
+  try {
+
+    await db.collection("depositos")
+      .doc(docId)
+      .update({
+        valor: valor
+      });
+
+    alert("✅ Depósito atualizado com sucesso!");
+    recarregarTudo();
+
+  } catch(error) {
+    console.error("Erro:", error);
+    alert("❌ Erro ao editar depósito: " + error.message);
+  }
+
+}
+
+// =============================
+// DELETAR DEPÓSITO
+// =============================
+
+async function deletarDeposito(docId) {
+
+  if(!confirm("⚠️ Tem certeza que deseja DELETAR este depósito?\n\nEsta ação é irreversível!")) return;
+
+  if(!confirm("Confirmar deleção? Este depósito será removido permanentemente!")) return;
+
+  try {
+
+    await db.collection("depositos")
+      .doc(docId)
+      .delete();
+
+    alert("✅ Depósito deletado com sucesso!");
+    recarregarTudo();
+
+  } catch(error) {
+    console.error("Erro:", error);
+    alert("❌ Erro ao deletar depósito: " + error.message);
+  }
+
+}
+
+// =============================
+// CARREGAR SAQUES PENDENTES
+// =============================
+
+function carregarSaquesPendentes() {
+
+  let query = db.collection("saques").where("status", "==", "pendente");
+  if (uidFiltro) query = query.where("uid", "==", uidFiltro);
+  query = query.limit(50);
+  console.log("Consulta Saques Pendentes", uidFiltro ? `UID=${uidFiltro}` : "sem UID", query);
+  query.get()
+    .then(snapshot => {
+
+      const container = 
+        document.getElementById("saques-pendentes");
+
+      if(snapshot.empty) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">⏳</div>
+            <p>Nenhum saque pendente</p>
+          </div>
+        `;
+        return;
+      }
+
+      let html = "";
+
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        let dataFormatada = "Data indisponível";
+        if (data.data) {
+          if (typeof data.data.toDate === 'function') {
+            dataFormatada = new Date(data.data.toDate()).toLocaleString("pt-BR");
+          } else if (data.data instanceof Date) {
+            dataFormatada = data.data.toLocaleString("pt-BR");
+          } else if (typeof data.data === 'string') {
+            dataFormatada = new Date(data.data).toLocaleString("pt-BR");
+          } else if (typeof data.data === 'number') {
+            dataFormatada = new Date(data.data).toLocaleString("pt-BR");
+          }
+        }
+
+        const calcularTaxa = (saque) => {
+          console.log('Debug Saque Pendente:', { valor: saque.valor, valorSolicitado: saque.valorSolicitado, taxaSaque: saque.taxaSaque, dataSaque: saque });
+          if (saque.taxaSaque && saque.taxaSaque > 0) return saque.taxaSaque;
+          const valor = parseFloat(saque.valorSolicitado) || parseFloat(saque.valor) || 0;
+          const taxa = valor > 0 ? valor * 0.06 : 0;
+          console.log('Taxa calculada:', taxa, 'de valor:', valor);
+          return taxa;
+        };
+        
+        html += `
+          <div class="saque-card">
+            <div class="saque-info">
+              <div class="saque-valor">
+                ${formatador.format(data.valorLiquido || data.valor)}
+              </div>
+              <div style="font-size: 12px; color: rgba(255,255,255,0.8); margin: 8px 0;">
+                Solicitado: <strong>${formatador.format(data.valorSolicitado || data.valor)}</strong>
+              </div>
+              <div style="font-size: 12px; color: #ff6b6b; margin: 5px 0;">
+                Taxa (6%): <strong>${formatador.format(calcularTaxa(data))}</strong>
+              </div>
+              <div class="saque-pix">
+                🔑 ${data.tipoPix}: ${data.chave}
+              </div>
+              <div class="deposito-uid">UID: ${data.uid}</div>
+              <div class="saque-pix">${dataFormatada}</div>
+              <span class="deposito-status status-pendente">
+                Pendente
+              </span>
+            </div>
+            <div class="deposito-actions">
+              <button class="btn btn-aprovar" 
+                onclick="aprovarSaque('${doc.id}')">
+                ✅ Processar
+              </button>
+              <button class="btn btn-rejeitar" 
+                onclick="rejeitarSaque('${doc.id}')">
+                ❌ Rejeitar
+              </button>
+            </div>
+          </div>
+        `;
+      });
+
+      container.innerHTML = html;
+
+    }).catch(error => {
+      console.error("Erro ao carregar saques:", error);
+      mostrarErro("saques-pendentes", error.message);
+    });
+
+}
+
+// =============================
+// CARREGAR SAQUES PROCESSADOS
+// =============================
+
+function carregarSaquesProcessados() {
+
+  // Para evitar necessidade de índice composto, consultar somente status e filtrar UID no cliente.
+  let query = db.collection("saques").where("status", "in", ["processado", "rejeitado"]);
+  query = query.limit(100); // mais registros (filtragem cliente)
+  query.get()
+    .then(snapshot => {
+      const container = document.getElementById("saques-processados");
+
+      let docs = snapshot.docs;
+      if (uidFiltro) {
+        docs = docs.filter(doc => doc.data().uid === uidFiltro);
+      }
+
+      if (docs.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">✅</div>
+            <p>Nenhum saque processado</p>
+          </div>
+        `;
+        return;
+      }
+
+      let html = "";
+
+      docs.forEach(doc => {
+        const data = doc.data();
+        let dataFormatada = "Data indisponível";
+        if (data.data) {
+          if (typeof data.data.toDate === 'function') {
+            dataFormatada = new Date(data.data.toDate()).toLocaleString("pt-BR");
+          } else if (data.data instanceof Date) {
+            dataFormatada = data.data.toLocaleString("pt-BR");
+          } else if (typeof data.data === 'string') {
+            dataFormatada = new Date(data.data).toLocaleString("pt-BR");
+          } else if (typeof data.data === 'number') {
+            dataFormatada = new Date(data.data).toLocaleString("pt-BR");
+          }
+        }
+
+        const statusClasse = data.status === "processado" 
+          ? "status-aprovado" 
+          : "status-rejeitado";
+
+        const statusTexto = data.status === "processado" 
+          ? "✅ Processado" 
+          : "❌ Rejeitado";
+
+        const calcularTaxaProcessado = (saque) => {
+          console.log('Debug Saque Processado:', { valor: saque.valor, valorSolicitado: saque.valorSolicitado, taxaSaque: saque.taxaSaque, dataSaque: saque });
+          if (saque.taxaSaque && saque.taxaSaque > 0) return saque.taxaSaque;
+          const valor = parseFloat(saque.valorSolicitado) || parseFloat(saque.valor) || 0;
+          const taxa = valor > 0 ? valor * 0.06 : 0;
+          console.log('Taxa calculada (processado):', taxa, 'de valor:', valor);
+          return taxa;
+        };
+        
+        html += `
+          <div class="saque-card">
+            <div class="saque-info">
+              <div class="saque-valor">
+                ${formatador.format(data.valorLiquido || data.valor)}
+              </div>
+              <div style="font-size: 12px; color: rgba(102, 126, 234, 0.9); margin: 8px 0;">
+                Solicitado: <strong>${formatador.format(data.valorSolicitado || data.valor)}</strong>
+              </div>
+              <div style="font-size: 12px; color: #ff6b6b; margin: 5px 0;">
+                Taxa (6%): <strong>${formatador.format(calcularTaxaProcessado(data))}</strong>
+              </div>
+              <div class="saque-pix">
+                🔑 ${data.tipoPix}: ${data.chave}
+              </div>
+              <div class="deposito-uid">UID: ${data.uid}</div>
+              <div class="saque-pix">${dataFormatada}</div>
+              <span class="deposito-status ${statusClasse}">
+                ${statusTexto}
+              </span>
+            </div>
+            <div class="deposito-actions">
+              <button class="btn" style="background: #007bff; color: white;" 
+                onclick="editarSaque('${doc.id}', '${data.valor}', '${data.chave}', '${data.tipoPix}')">
+                ✏️ Editar
+              </button>
+              <button class="btn btn-rejeitar" 
+                onclick="deletarSaque('${doc.id}')">
+                🗑️ Deletar
+              </button>
+            </div>
+          </div>
+        `;
+      });
+
+      container.innerHTML = html;
+
+    }).catch(error => {
+      console.error("Erro ao carregar saques:", error);
+      document.getElementById("saques-processados").innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">❌</div>
+          <p>Erro ao carregar saques: ${error.message}</p>
+        </div>
+      `;
+    });
+}
+
+// =============================
+// CALCULAR DIAS RESTANTES
+// =============================
+
+function calcularDiasRestantes(dataCriacao) {
+    if (!dataCriacao) return null;
+
+    let dataInicio = null;
+
+    if (dataCriacao && typeof dataCriacao.toDate === 'function') {
+        dataInicio = dataCriacao.toDate();
+    } else if (dataCriacao instanceof Date) {
+        dataInicio = dataCriacao;
+    } else if (typeof dataCriacao === 'string' || typeof dataCriacao === 'number') {
+        dataInicio = new Date(dataCriacao);
+    }
+
+    if (!dataInicio || isNaN(dataInicio.getTime())) {
+        return null;
+    }
+
+    const agora = new Date();
+    const diferencaMs = agora.getTime() - dataInicio.getTime();
+    const diasPassados = Math.floor(diferencaMs / (1000 * 60 * 60 * 24));
+
+    return 30 - diasPassados;
+}
+
+// =============================
+// VERIFICAR EXPIRAÇÃO PRODUTOS
+// =============================
+
+async function verificarExpiracaoProdutos() {
+    try {
+        const agora = new Date();
+
+        const snapshot = await db
+            .collection("compras")
+            .where("status", "==", "ativo")
+            .get();
+
+        const batch = db.batch();
+
+        snapshot.forEach((doc) => {
+
+            const compra = doc.data();
+
+            const dataCampo = compra.dataCriacao || compra.inicio; // Fallback para campo antigo
+            if (!dataCampo) return;
+
+            const dataCriacao = dataCampo.toDate ? dataCampo.toDate() : new Date(dataCampo);
+
+            const diferencaMs = agora - dataCriacao;
+
+            const dias = diferencaMs / (1000 * 60 * 60 * 24);
+
+            if (dias >= 30) {
+
+                const ref = db
+                    .collection("compras")
+                    .doc(doc.id);
+
+                batch.update(ref, {
+                    status: "encerrado",
+                    dataEncerramento: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+                console.log("Produto encerrado:", doc.id);
+            }
+
+        });
+
+        await batch.commit();
+
+    } catch (erro) {
+        console.error(
+            "Erro ao verificar expiração:",
+            erro
+        );
+    }
+}
+
+function parseFirestoreDate(value) {
+  if (!value) return null;
+  if (typeof value.toDate === 'function') {
+    return value.toDate();
+  }
+  if (value instanceof Date) {
+    return value;
+  }
+  if (typeof value === 'string' || typeof value === 'number') {
+    const date = new Date(value);
+    return isNaN(date.getTime()) ? null : date;
+  }
+  return null;
+}
+
+function formatarDataParaComparacao(date) {
+  if (!date || !(date instanceof Date)) return null;
+  const ano = date.getFullYear();
+  const mes = String(date.getMonth() + 1).padStart(2, '0');
+  const dia = String(date.getDate()).padStart(2, '0');
+  return `${ano}-${mes}-${dia}`;
+}
+
+async function gerarRendaDiaria() {
+  if (!db) {
+    console.warn("Firestore não inicializado para gerar renda diária");
+    return;
+  }
+
+  const agora = new Date();
+  const msDia = 24 * 60 * 60 * 1000;
+
+  try {
+    const snapshot = await db.collection("compras").where("status", "==", "ativo").get();
+
+    if (snapshot.empty) {
+      console.log("Gerar renda diária: nenhuma compra ativa encontrada");
+      return;
+    }
+
+    for (const doc of snapshot.docs) {
+      const compra = doc.data();
+      const compraId = doc.id;
+      const compraRef = db.collection("compras").doc(compraId);
+      const usuarioUid = compra.uid;
+      const rendaDiaria = parseFloat(compra.rendaDiaria) || 0;
+      const produto = compra.produto || compra.nome || "Produto";
+      const ciclo = Number(compra.ciclo);
+      const dataInicio = parseFirestoreDate(compra.inicio || compra.dataCriacao);
+
+      if (!dataInicio || !usuarioUid || rendaDiaria <= 0) {
+        continue;
+      }
+
+      const diasDesdeInicio = Math.floor((agora.getTime() - dataInicio.getTime()) / msDia);
+      if (!isNaN(ciclo) && ciclo > 0 && diasDesdeInicio >= ciclo) {
+        try {
+          await compraRef.update({ status: "finalizado" });
+          console.log(`Compra finalizada automaticamente: ${compraId}`);
+        } catch (error) {
+          console.error(`Erro ao finalizar compra ${compraId}:`, error);
+        }
+        continue;
+      }
+
+      let ultimaRendaGeradaDate = parseFirestoreDate(compra.ultimaRendaGerada);
+      let proximoPagamento = ultimaRendaGeradaDate
+        ? new Date(ultimaRendaGeradaDate.getTime() + msDia)
+        : new Date(dataInicio.getTime() + msDia);
+
+      while (proximoPagamento <= agora) {
+        const diasPagamento = Math.floor((proximoPagamento.getTime() - dataInicio.getTime()) / msDia);
+
+        if (!isNaN(ciclo) && ciclo > 0 && diasPagamento >= ciclo) {
+          try {
+            await compraRef.update({ status: "finalizado" });
+            console.log(`Compra finalizada automaticamente: ${compraId}`);
+          } catch (error) {
+            console.error(`Erro ao finalizar compra ${compraId}:`, error);
+          }
+          break;
+        }
+
+        try {
+          await db.collection("users").doc(usuarioUid).update({
+            saldo: firebase.firestore.FieldValue.increment(rendaDiaria)
+          });
+
+          await db.collection("ganhos").add({
+            uid: usuarioUid,
+            produto: produto,
+            valor: rendaDiaria,
+            data: firebase.firestore.FieldValue.serverTimestamp(),
+            tipo: "renda_diaria"
+          });
+
+          const ultimaRendaGeradaIso = proximoPagamento.toISOString();
+          await compraRef.update({ ultimaRendaGerada: ultimaRendaGeradaIso });
+
+          console.log(`Renda diária gerada para compra ${compraId} e usuário ${usuarioUid}: ${rendaDiaria} (${ultimaRendaGeradaIso})`);
+        } catch (error) {
+          console.error(`Erro ao gerar renda para compra ${compraId}:`, error);
+          break;
+        }
+
+        ultimaRendaGeradaDate = proximoPagamento;
+        proximoPagamento = new Date(ultimaRendaGeradaDate.getTime() + msDia);
+      }
+    }
+  } catch (erro) {
+    console.error("Erro ao executar gerarRendaDiaria:", erro);
+  }
+}
+
+function scheduleGerarRendaDiaria() {
+  if (rendaDiariaIntervalId !== null) {
+    return;
+  }
+
+  rendaDiariaIntervalId = setInterval(() => {
+    gerarRendaDiaria().catch(error => console.error("Erro no agendamento de gerarRendaDiaria:", error));
+  }, 24 * 60 * 60 * 1000);
+
+  console.log("Agendado gerarRendaDiaria a cada 24 horas");
+}
+
+// =============================
+// CARREGAR COMPRAS
+// =============================
+
+function carregarCompras() {
+
+  let query = db.collection("compras").where("status", "==", "ativo").limit(200);
+  console.log("Consulta Compras", uidFiltro ? `UID=${uidFiltro}` : "sem UID", query);
+
+  query.onSnapshot(snapshot => {
+
+      const container = 
+        document.getElementById("compras-list");
+
+      let docs = snapshot.docs;
+      if (uidFiltro) {
+        docs = docs.filter(doc => doc.data().uid === uidFiltro);
+      }
+
+      // Sort by dataCriacao descending
+      docs.sort((a, b) => {
+        const aData = a.data().dataCriacao;
+        const bData = b.data().dataCriacao;
+        if (!aData || !bData) return 0;
+        const aTime = aData.toDate ? aData.toDate().getTime() : new Date(aData).getTime();
+        const bTime = bData.toDate ? bData.toDate().getTime() : new Date(bData).getTime();
+        return bTime - aTime;
+      });
+
+      if (docs.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">🛒</div>
+            <p>Nenhuma compra realizada</p>
+          </div>
+        `;
+        return;
+      }
+
+      let html = "";
+
+      docs.forEach(doc => {
+        const data = doc.data();
+        let dataFormatada = "Data indisponível";
+        const dataCampo = data.dataCriacao || data.inicio; // Fallback para campo antigo
+        if (dataCampo) {
+          try {
+            if (typeof dataCampo.toDate === 'function') {
+              dataFormatada = new Date(dataCampo.toDate()).toLocaleString("pt-BR");
+            } else if (dataCampo instanceof Date) {
+              dataFormatada = dataCampo.toLocaleString("pt-BR");
+            } else if (typeof dataCampo === 'string') {
+              dataFormatada = new Date(dataCampo).toLocaleString("pt-BR");
+            } else if (typeof dataCampo === 'number') {
+              dataFormatada = new Date(dataCampo).toLocaleString("pt-BR");
+            }
+          } catch (error) {
+            console.warn(`Erro ao formatar data da compra ${doc.id}:`, error);
+            dataFormatada = "Data inválida";
+          }
+        }
+
+        const diasRestantes = calcularDiasRestantes(dataCampo);
+        let textoDiasRestantes = "Data de criação indisponível";
+        if (diasRestantes !== null && diasRestantes !== undefined) {
+          textoDiasRestantes = diasRestantes <= 0 ? "Encerrado" : `${diasRestantes} dias restantes`;
+        }
+
+        html += `
+          <div class="compra-card">
+            <div class="compra-info">
+              <div class="compra-produto">
+                ${data.nome || data.produto}
+              </div>
+              <div class="compra-valor">
+                💰 Valor: ${formatador.format(data.valor)}
+              </div>
+              <div class="compra-renda">
+                📈 Renda diária: ${formatador.format(data.rendaDiaria)}
+              </div>
+              <div class="deposito-uid">UID: ${data.uid}</div>
+              <div class="deposito-data">${dataFormatada}</div>
+              <span class="compra-status ${diasRestantes !== null && diasRestantes <= 0 ? 'status-rejeitado' : 'status-ativo'}">
+                ⏱ ${textoDiasRestantes}
+              </span>
+            </div>
+            <div class="deposito-actions">
+              <button class="btn" style="background: #007bff; color: white;" 
+                onclick="editarCompra('${doc.id}', '${data.valor}', '${data.rendaDiaria}', '${data.nome || data.produto}')">              ✏️ Editar
+              </button>
+              <button class="btn btn-rejeitar" 
+                onclick="deletarCompra('${doc.id}')">
+                🗑️ Deletar
+              </button>
+            </div>
+          </div>
+        `;
+      });
+
+      container.innerHTML = html;
+
+    }, error => {
+      console.error("Erro ao carregar compras:", error);
+      mostrarErro("compras-list", error.message);
+    });
+
+}
+
+// =============================
+// EDITAR COMPRA
+// =============================
+
+async function editarCompra(docId, valorAtual, rendaDiariaAtual, produtoAtual) {
+
+  const novoValor = prompt(`Editar valor da compra\n\nProduto: ${produtoAtual}\nValor atual: R$ ${valorAtual}`, valorAtual);
+  
+  if(novoValor === null) return;
+  
+  const valor = parseFloat(novoValor);
+  
+  if(isNaN(valor) || valor <= 0) {
+    alert("❌ Valor inválido!");
+    return;
+  }
+
+  const novaRendaDiaria = prompt(`Editar renda diária\n\nRenda diária atual: R$ ${rendaDiariaAtual}`, rendaDiariaAtual);
+  
+  if(novaRendaDiaria === null) return;
+  
+  const rendaDiaria = parseFloat(novaRendaDiaria);
+  
+  if(isNaN(rendaDiaria) || rendaDiaria < 0) {
+    alert("❌ Renda diária inválida!");
+    return;
+  }
+
+  if(!confirm(`Confirmar alterações?\nValor: R$ ${valor.toFixed(2)}\nRenda diária: R$ ${rendaDiaria.toFixed(2)}`)) return;
+
+  try {
+    // Buscar dados da compra antes de atualizar
+    const compraDoc = await db.collection("compras").doc(docId).get();
+    const compraData = compraDoc.data();
+
+    await db.collection("compras")
+      .doc(docId)
+      .update({
+        valor: valor,
+        rendaDiaria: rendaDiaria
+      });
+
+    // Registrar no histórico
+    if (compraData) {
+      await adicionarRegistroHistorico(
+        "compra",
+        valor,
+        `Compra editada: ${produtoAtual}`,
+        compraData.uid,
+        "concluido"
+      );
+    }
+
+    alert("✅ Compra atualizada com sucesso!");
+    recarregarTudo();
+
+  } catch(error) {
+    console.error("Erro:", error);
+    alert("❌ Erro ao editar compra: " + error.message);
+  }
+
+}
+
+// =============================
+// DELETAR COMPRA
+// =============================
+
+async function deletarCompra(docId) {
+
+  if(!confirm("⚠️ Tem certeza que deseja DELETAR esta compra?\n\nEsta ação é irreversível!")) return;
+
+  if(!confirm("Confirmar deleção? Esta compra será removida permanentemente!")) return;
+
+  try {
+    // Buscar dados da compra antes de deletar para registrar no histórico
+    const compraDoc = await db.collection("compras").doc(docId).get();
+    const compraData = compraDoc.data();
+
+    await db.collection("compras")
+      .doc(docId)
+      .delete();
+
+    // Registrar no histórico
+    if (compraData) {
+      await adicionarRegistroHistorico(
+        "compra",
+        compraData.valor,
+        `Compra deletada: ${compraData.produto}`,
+        compraData.uid,
+        "deletado"
+      );
+    }
+
+    alert("✅ Compra deletada com sucesso!");
+    recarregarTudo();
+
+  } catch(error) {
+    console.error("Erro:", error);
+    alert("❌ Erro ao deletar compra: " + error.message);
+  }
+
+}
+
+// =============================
+// CARREGAR GANHOS
+// =============================
+
+function carregarGanhos() {
+
+  let query = db.collection("ganhos").orderBy("data", "desc").limit(200);
+  console.log("Consulta Ganhos", uidFiltro ? `UID=${uidFiltro}` : "sem UID", query);
+
+  query.get()
+    .then(snapshot => {
+
+      const container = 
+        document.getElementById("ganhos-list");
+
+      let docs = snapshot.docs;
+      if (uidFiltro) {
+        docs = docs.filter(doc => doc.data().uid === uidFiltro);
+      }
+
+      if(docs.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">💰</div>
+            <p>Nenhum ganho registrado</p>
+          </div>
+        `;
+        atualizarEstatisticasGanhos([]);
+        return;
+      }
+
+      let html = "";
+      let totalGanhos = 0;
+      let mediaGanhos = 0;
+
+      docs.forEach(doc => {
+        const data = doc.data();
+        totalGanhos += data.valor || 0;
+
+        let dataFormatada = "Data indisponível";
+        if (data.data) {
+          if (typeof data.data.toDate === 'function') {
+            dataFormatada = new Date(data.data.toDate()).toLocaleString("pt-BR");
+          } else if (data.data instanceof Date) {
+            dataFormatada = data.data.toLocaleString("pt-BR");
+          } else if (typeof data.data === 'string') {
+            dataFormatada = new Date(data.data).toLocaleString("pt-BR");
+          } else if (typeof data.data === 'number') {
+            dataFormatada = new Date(data.data).toLocaleString("pt-BR");
+          }
+        }
+
+        html += `
+          <div class="deposito-card">
+            <div class="deposito-info">
+              <div style="font-size: 16px; font-weight: bold; color: #667eea; margin-bottom: 10px;">
+                📦 ${data.produto || "Produto não especificado"}
+              </div>
+              <div class="deposito-valor">
+                ${formatador.format(data.valor || 0)}
+              </div>
+              <div class="deposito-uid">UID: ${data.uid}</div>
+              <div class="deposito-data">${dataFormatada}</div>
+            </div>
+          </div>
+        `;
+
+        // Registrar rendimento no histórico se ainda não foi registrado
+        registrarRendimentoSeNecessario(data, doc.id);
+      });
+
+      mediaGanhos = docs.length > 0 ? totalGanhos / docs.length : 0;
+
+      document.getElementById("stat-total-ganhos-value").innerText = formatador.format(totalGanhos);
+      document.getElementById("stat-total-ganhos-registros").innerText = docs.length;
+      document.getElementById("stat-media-ganhos").innerText = formatador.format(mediaGanhos);
+
+      container.innerHTML = html;
+
+    }).catch(error => {
+      console.error("Erro ao carregar ganhos:", error);
+      mostrarErro("ganhos-list", error.message);
+    });
+
+}
+
+function atualizarEstatisticasGanhos(dados) {
+  if(dados.length === 0) {
+    document.getElementById("stat-total-ganhos-value").innerText = "R$ 0";
+    document.getElementById("stat-total-ganhos-registros").innerText = "0";
+    document.getElementById("stat-media-ganhos").innerText = "R$ 0";
+  }
+}
+
+// =============================
+// REGISTRAR RENDIMENTO SE NECESSÁRIO
+// =============================
+
+async function registrarRendimentoSeNecessario(ganhoData, ganhoId) {
+  try {
+    // Verificar se já existe registro no histórico para este ganho
+    const historicoQuery = await db.collection("historico")
+      .where("uid", "==", ganhoData.uid)
+      .where("tipo", "==", "rendimento")
+      .where("valor", "==", ganhoData.valor)
+      .where("data", "==", ganhoData.data)
+      .limit(1)
+      .get();
+
+    if (historicoQuery.empty) {
+      // Não existe, registrar
+      await adicionarRegistroHistorico(
+        "rendimento",
+        ganhoData.valor,
+        `Rendimento gerado: ${ganhoData.produto || "Produto"}`,
+        ganhoData.uid,
+        "concluido"
+      );
+      console.log("Rendimento registrado no histórico:", ganhoData.uid, ganhoData.valor);
+    } else {
+      console.log("Rendimento já registrado no histórico:", ganhoData.uid, ganhoData.valor);
+    }
+  } catch (error) {
+    console.error("Erro ao registrar rendimento:", error);
+  }
+}
+
+// =============================
+// CARREGAR RENDA DIÁRIA
+// =============================
+
+function carregarRenda() {
+
+  // Buscar compras ativas (que geram renda diária)
+  // Removido orderBy para evitar necessidade de índice composto
+  let query = db.collection("compras").where("status", "==", "ativo");
+  if (uidFiltro) query = query.where("uid", "==", uidFiltro);
+  console.log("Consulta Renda (compras ativas)", uidFiltro ? `UID=${uidFiltro}` : "sem UID", query);
+  query.get()
+    .then(snapshot => {
+
+      const containerProdutos = document.getElementById("renda-list");
+      const containerHistorico = document.getElementById("renda-historico");
+
+      if(snapshot.empty) {
+        containerProdutos.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">📦</div>
+            <p>Nenhum produto com renda diária ativa</p>
+          </div>
+        `;
+        containerHistorico.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">📜</div>
+            <p>Nenhum histórico disponível</p>
+          </div>
+        `;
+        
+        document.getElementById("stat-renda-total").innerText = "R$ 0";
+        document.getElementById("stat-renda-produtos").innerText = "0";
+        document.getElementById("stat-renda-media").innerText = "R$ 0";
+        document.getElementById("stat-renda-24h").innerText = "R$ 0";
+        return;
+      }
+
+      // Converter para array e ordenar por data de início (mais recente primeiro)
+      let comprasArray = [];
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        comprasArray.push({
+          id: doc.id,
+          ...data
+        });
+      });
+
+      // Ordenar por data de início (descendente)
+      comprasArray.sort((a, b) => {
+        let dataA = null;
+        let dataB = null;
+
+        if (a.inicio && typeof a.inicio.toDate === 'function') {
+          dataA = new Date(a.inicio.toDate());
+        } else if (a.inicio instanceof Date) {
+          dataA = a.inicio;
+        } else if (typeof a.inicio === 'string') {
+          dataA = new Date(a.inicio);
+        } else if (typeof a.inicio === 'number') {
+          dataA = new Date(a.inicio);
+        }
+
+        if (b.inicio && typeof b.inicio.toDate === 'function') {
+          dataB = new Date(b.inicio.toDate());
+        } else if (b.inicio instanceof Date) {
+          dataB = b.inicio;
+        } else if (typeof b.inicio === 'string') {
+          dataB = new Date(b.inicio);
+        } else if (typeof b.inicio === 'number') {
+          dataB = new Date(b.inicio);
+        }
+
+        if (!dataA && !dataB) return 0;
+        if (!dataA) return 1;
+        if (!dataB) return -1;
+        return dataB.getTime() - dataA.getTime();
+      });
+
+      let htmlProdutos = "";
+      let totalRenda = 0;
+      let totalRenda24h = 0;
+      const agora = new Date();
+      const ontemMenoUmDia = new Date(agora.getTime() - 24 * 60 * 60 * 1000);
+
+      comprasArray.forEach(data => {
+        const rendaDiaria = data.rendaDiaria || 0;
+        totalRenda += rendaDiaria;
+
+        let dataFormatada = "Data indisponível";
+        if (data.inicio) {
+          if (typeof data.inicio.toDate === 'function') {
+            dataFormatada = new Date(data.inicio.toDate()).toLocaleString("pt-BR");
+          } else if (data.inicio instanceof Date) {
+            dataFormatada = data.inicio.toLocaleString("pt-BR");
+          } else if (typeof data.inicio === 'string') {
+            dataFormatada = new Date(data.inicio).toLocaleString("pt-BR");
+          } else if (typeof data.inicio === 'number') {
+            dataFormatada = new Date(data.inicio).toLocaleString("pt-BR");
+          }
+        }
+
+        // Verificar se está nas últimas 24h
+        let dataInicio = null;
+        if (data.inicio && typeof data.inicio.toDate === 'function') {
+          dataInicio = new Date(data.inicio.toDate());
+        } else if (data.inicio instanceof Date) {
+          dataInicio = data.inicio;
+        } else if (typeof data.inicio === 'string') {
+          dataInicio = new Date(data.inicio);
+        } else if (typeof data.inicio === 'number') {
+          dataInicio = new Date(data.inicio);
+        }
+
+        if (dataInicio && dataInicio > ontemMenoUmDia) {
+          totalRenda24h += rendaDiaria;
+        }
+
+        htmlProdutos += `
+          <div class="compra-card">
+            <div class="compra-info">
+              <div class="compra-produto">
+                📦 ${data.produto || "Produto não especificado"}
+              </div>
+              <div class="compra-renda">
+                📈 Renda diária: ${formatador.format(rendaDiaria)}
+              </div>
+              <div class="compra-valor">
+                💰 Valor total: ${formatador.format(data.valor || 0)}
+              </div>
+              <div class="deposito-uid">UID: ${data.uid}</div>
+              <div class="deposito-data">Desde ${dataFormatada}</div>
+              <span class="compra-status status-ativo">
+                ✅ Gerando renda
+              </span>
+            </div>
+          </div>
+        `;
+      });
+
+      const mediaRenda = comprasArray.length > 0 ? totalRenda / comprasArray.length : 0;
+
+      document.getElementById("stat-renda-total").innerText = formatador.format(totalRenda);
+      document.getElementById("stat-renda-produtos").innerText = comprasArray.length;
+      document.getElementById("stat-renda-media").innerText = formatador.format(mediaRenda);
+      document.getElementById("stat-renda-24h").innerText = formatador.format(totalRenda24h);
+
+      containerProdutos.innerHTML = htmlProdutos;
+
+      // Buscar ganhos para histórico
+      db.collection("ganhos")
+        .orderBy("data", "desc")
+        .limit(20)
+        .get()
+        .then(snapshotGanhos => {
+
+          let htmlHistorico = "";
+
+          if(snapshotGanhos.empty) {
+            containerHistorico.innerHTML = `
+              <div class="empty-state">
+                <div class="empty-state-icon">📜</div>
+                <p>Nenhum ganho registrado até o momento</p>
+              </div>
+            `;
+            return;
+          }
+
+          snapshotGanhos.forEach(doc => {
+            const data = doc.data();
+            let dataFormatada = "Data indisponível";
+            if (data.data) {
+              if (typeof data.data.toDate === 'function') {
+                dataFormatada = new Date(data.data.toDate()).toLocaleString("pt-BR");
+              } else if (data.data instanceof Date) {
+                dataFormatada = data.data.toLocaleString("pt-BR");
+              } else if (typeof data.data === 'string') {
+                dataFormatada = new Date(data.data).toLocaleString("pt-BR");
+              } else if (typeof data.data === 'number') {
+                dataFormatada = new Date(data.data).toLocaleString("pt-BR");
+              }
+            }
+
+            htmlHistorico += `
+              <div class="deposito-card">
+                <div class="deposito-info">
+                  <div style="font-size: 16px; font-weight: bold; color: #28a745; margin-bottom: 10px;">
+                    💵 ${data.produto || "Produto"}
+                  </div>
+                  <div class="deposito-valor">
+                    ${formatador.format(data.valor || 0)}
+                  </div>
+                  <div class="deposito-uid">UID: ${data.uid}</div>
+                  <div class="deposito-data">${dataFormatada}</div>
+                </div>
+              </div>
+            `;
+          });
+
+          containerHistorico.innerHTML = htmlHistorico;
+
+        }).catch(error => {
+          console.error("Erro ao carregar histórico:", error);
+          mostrarErro("renda-historico", error.message);
+        });
+
+    }).catch(error => {
+      console.error("Erro ao carregar renda:", error);
+      mostrarErro("renda-list", error.message);
+    });
+
+}
+
+// =============================
+// APROVAR SAQUE
+// =============================
+
+async function aprovarSaque(docId) {
+
+  if(!confirm("Marcar saque como processado?")) return;
+
+  try {
+    // Buscar dados do saque
+    const saqueDoc = await db.collection("saques").doc(docId).get();
+    const saqueData = saqueDoc.data();
+
+    await db.collection("saques")
+      .doc(docId)
+      .update({
+        status: "processado"
+      });
+
+    // Registrar no histórico
+    if (saqueData) {
+      await adicionarRegistroHistorico(
+        "saque",
+        saqueData.valor,
+        `Saque processado - Chave Pix: ${saqueData.chave}`,
+        saqueData.uid,
+        "concluido"
+      );
+    }
+
+    alert("✅ Saque marcado como processado!");
+    recarregarTudo();
+
+  } catch(error) {
+    console.error("Erro:", error);
+    alert("❌ Erro ao processar: " + error.message);
+  }
+
+}
+
+// =============================
+// REJEITAR SAQUE
+// =============================
+
+async function rejeitarSaque(docId) {
+
+  if(!confirm("Rejeitar este saque?")) return;
+
+  try {
+    // Buscar dados do saque
+    const saqueDoc = await db.collection("saques").doc(docId).get();
+    const saqueData = saqueDoc.data();
+
+    await db.collection("saques")
+      .doc(docId)
+      .update({
+        status: "rejeitado"
+      });
+
+    // Registrar no histórico
+    if (saqueData) {
+      await adicionarRegistroHistorico(
+        "saque",
+        saqueData.valor,
+        `Saque rejeitado - Chave Pix: ${saqueData.chave}`,
+        saqueData.uid,
+        "rejeitado"
+      );
+    }
+
+    alert("✅ Saque rejeitado!");
+    recarregarTudo();
+
+  } catch(error) {
+    console.error("Erro:", error);
+    alert("❌ Erro ao rejeitar: " + error.message);
+  }
+
+}
+
+// =============================
+// EDITAR SAQUE
+// =============================
+
+async function editarSaque(docId, valorAtual, chaveAtual, tipoPixAtual) {
+
+  const novoValor = prompt(`Editar valor do saque\n\nValor atual: R$ ${valorAtual}\nChave Pix: ${chaveAtual}`, valorAtual);
+  
+  if(novoValor === null) return;
+  
+  const valor = parseFloat(novoValor);
+  
+  if(isNaN(valor) || valor <= 0) {
+    alert("❌ Valor inválido!");
+    return;
+  }
+
+  if(!confirm(`Confirmar alteração do valor para R$ ${valor.toFixed(2)}?`)) return;
+
+  try {
+
+    await db.collection("saques")
+      .doc(docId)
+      .update({
+        valor: valor
+      });
+
+    alert("✅ Saque atualizado com sucesso!");
+    recarregarTudo();
+
+  } catch(error) {
+    console.error("Erro:", error);
+    alert("❌ Erro ao editar saque: " + error.message);
+  }
+
+}
+
+// =============================
+// DELETAR SAQUE
+// =============================
+
+async function deletarSaque(docId) {
+
+  if(!confirm("⚠️ Tem certeza que deseja DELETAR este saque?\n\nEsta ação é irreversível!")) return;
+
+  if(!confirm("Confirmar deleção? Este saque será removido permanentemente!")) return;
+
+  try {
+
+    await db.collection("saques")
+      .doc(docId)
+      .delete();
+
+    alert("✅ Saque deletado com sucesso!");
+    recarregarTudo();
+
+  } catch(error) {
+    console.error("Erro:", error);
+    alert("❌ Erro ao deletar saque: " + error.message);
+  }
+
+}
+
+// =============================
+// ABRIR ABA
+// =============================
+
+function abrirTab(tabName) {
+
+  document.querySelectorAll(".tab-content")
+    .forEach(tab => tab.classList.remove("active"));
+
+  document.querySelectorAll(".tab-btn")
+    .forEach(btn => btn.classList.remove("active"));
+
+  document.getElementById("tab-" + tabName)
+    .classList.add("active");
+
+  event.target.classList.add("active");
+
+  // Carregar relatórios se for a aba de relatórios
+  if (tabName === "relatorios") {
+    carregarRelatorios();
+  }
+
+  // Verificar expiração e carregar compras se for a aba compras
+  if (tabName === "compras") {
+    verificarExpiracaoProdutos().then(() => {
+      carregarCompras();
+    });
+  }
+
+  atualizarEstatisticas();
+
+}
+
+// =============================
+// ATUALIZAR ESTATÍSTICAS
+// =============================
+
+async function atualizarEstatisticas() {
+
+  try {
+
+    const depPendentes = await db.collection("depositos")
+      .where("status", "==", "pendente")
+      .get();
+
+    const saqPendentes = await db.collection("saques")
+      .where("status", "==", "pendente")
+      .get();
+
+    const depositos = await db.collection("depositos")
+      .where("status", "==", "aprovado")
+      .get();
+
+    let totalDep = 0;
+    depositos.forEach(doc => {
+      totalDep += doc.data().valor;
+    });
+
+    const saques = await db.collection("saques")
+      .where("status", "==", "processado")
+      .get();
+
+    let totalSaq = 0;
+    saques.forEach(doc => {
+      totalSaq += doc.data().valor;
+    });
+
+    document.getElementById("stat-depositos-pendentes").innerText = depPendentes.size;
+    document.getElementById("stat-saques-pendentes").innerText = saqPendentes.size;
+    document.getElementById("stat-total-depositos").innerText = formatador.format(totalDep);
+    document.getElementById("stat-total-saques").innerText = formatador.format(totalSaq);
+
+  } catch(error) {
+    console.error("Erro ao atualizar estatísticas:", error);
+  }
+
+}
+
+// =============================
+// CARREGAR USUÁRIOS
+// =============================
+// CARREGAR USUÁRIOS - VERSÃO ROBUSTA
+// =============================
+
+function carregarUsuarios() {
+  
+  const container = document.getElementById("usuarios-list");
+  
+  // PASSO 1: Validation de Credenciais e Firebase
+  console.log("═══════════════════════════════════════════════════════════");
+  console.log("🚀 INICIANDO CARREGAMENTO DE USUÁRIOS");
+  console.log("═══════════════════════════════════════════════════════════");
+  
+  try {
+    // Validar se Firebase foi inicializado
+    if (!firebase.apps.length) {
+      throw new Error("Firebase não inicializado - firebase.apps.length === 0");
+    }
+    console.log("✅ Firebase inicializado corretamente");
+    console.log("   Apps registrados:", firebase.apps.length);
+    
+    // Validar se db foi inicializado
+    if (!db) {
+      throw new Error("Firestore (db) não inicializado");
+    }
+    console.log("✅ Firestore (db) inicializado corretamente");
+    console.log("   Type:", typeof db);
+    
+    // Validar credenciais
+    const firebaseApp = firebase.app();
+    const options = firebaseApp.options;
+    console.log("✅ Configuração Firebase:");
+    console.log("   ProjectID:", options.projectId);
+    console.log("   AuthDomain:", options.authDomain);
+    console.log("   API Key:", options.apiKey ? "✅ Configurada" : "❌ Não configurada");
+    
+  } catch (error) {
+    console.error("❌ ERRO NA VALIDAÇÃO:", error);
+    atualizarDebug(`❌ Usuários: Erro na validação - ${error.message}`);
+    container.innerHTML = `
+      <div class="empty-state" style="background: #ffe6e6; padding: 20px; border-radius: 10px;">
+        <div class="empty-state-icon">❌</div>
+        <p><strong>ERRO: Firebase não configurado corretamente</strong></p>
+        <p style="font-size: 12px; color: #666; margin-top: 10px;">${error.message}</p>
+        <p style="font-size: 12px; color: #666;">Abra o console (F12) para mais detalhes</p>
+      </div>
+    `;
+    return;
+  }
+  
+  // PASSO 2: Verificar autenticação
+  console.log("\n--- VERIFICAÇÃO DE AUTENTICAÇÃO ---");
+  if (!auth) {
+    console.warn("⚠️ Auth não inicializado, usando modo Demo");
+    atualizarDebug("📊 Usuários: ⚠️ Auth não disponível - Modo Demo");
+  } else if (!auth.currentUser) {
+    console.log("⚠️ Usuário não logado - Modo Demo (sem filtro UID)");
+    atualizarDebug("📊 Usuários: ⚠️ Não logado - Modo Demo");
+  } else {
+    console.log("✅ Usuário logado:", auth.currentUser.uid);
+    console.log("   Email:", auth.currentUser.email || "(Anônimo)");
+    atualizarDebug(`📊 Usuários: ✅ Logado como ${auth.currentUser.uid.substring(0, 8)}...`);
+  }
+  
+  // PASSO 3: Mostrar estado de carregamento
+  console.log("\n--- ESTADO DE CARREGAMENTO ---");
+  console.log("Mostrando: 'Carregando usuários...'");
+  container.innerHTML = `
+    <div class="empty-state">
+      <div class="empty-state-icon">⏳</div>
+      <p>Carregando usuários...</p>
+    </div>
+  `;
+  atualizarDebug("📊 Usuários: ⏳ Consultando Firestore...");
+  
+  // PASSO 4: Construir query
+  console.log("\n--- CONSTRUINDO QUERY ---");
+  let query = null;
+  
+  try {
+    query = db.collection("users");
+    console.log("✅ Colação 'users' referenciada corretamente");
+    console.log("   Type:", typeof query);
+    
+    // Aplicar filtro por UID se ativo
+    if (filtroUsuarioAtivo && usuarioAtual) {
+      console.log("🔍 Aplicando filtro UID:", usuarioAtual.uid);
+      query = query.where("uid", "==", usuarioAtual.uid);
+      atualizarDebug(`📊 Usuários: 🔍 Filtro UID aplicado`);
+    } else {
+      console.log("📊 Modo Demo - sem filtro UID (mostrando todos)");
+      atualizarDebug("📊 Usuários: 📊 Modo Demo");
+    }
+    
+    // Tentar criar query com limit (sem orderBy para evitar erros)
+    query = query.limit(100);
+    console.log("✅ Query construída com sucesso");
+    console.log("   Limite: 100 documentos");
+    
+  } catch (queryError) {
+    console.error("❌ ERRO ao construir query:", queryError);
+    atualizarDebug(`❌ Usuários: Erro na query - ${queryError.message}`);
+    container.innerHTML = `
+      <div class="empty-state" style="background: #ffe6e6; padding: 20px; border-radius: 10px;">
+        <div class="empty-state-icon">❌</div>
+        <p><strong>ERRO ao construir query</strong></p>
+        <p style="font-size: 12px; color: #666; margin-top: 10px;">${queryError.message}</p>
+      </div>
+    `;
+    return;
+  }
+  
+  // PASSO 5: Executar query com onSnapshot
+  console.log("\n--- EXECUTANDO ONSNAPSHOT ---");
+  console.log("Timestamp:", new Date().toLocaleTimeString());
+  
+  const unsubscribe = query.onSnapshot(
+    // Callback de sucesso
+    (snapshot) => {
+      console.log("\n✅ SNAPSHOT RECEBIDO");
+      console.log("   Timestamp:", new Date().toLocaleTimeString());
+      console.log("   Documentos:", snapshot.size);
+      console.log("   Empty:", snapshot.empty);
+      console.log("   Metadata:", {
+        hasPendingWrites: snapshot.metadata.hasPendingWrites,
+        fromCache: snapshot.metadata.fromCache
+      });
+      
+      // Verificar se está vazio
+      if (snapshot.empty) {
+        console.log("⚠️ Nenhum documento encontrado");
+        atualizarDebug("📊 Usuários: ⚠️ Nenhum usuário encontrado");
+        
+        // Mensagem mais informativa
+        const mensagem = filtroUsuarioAtivo 
+          ? "Nenhum usuário encontrado para este UID" 
+          : "Nenhum usuário cadastrado no Firestore";
+        
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">👥</div>
+            <p>${mensagem}</p>
+            <p style="font-size: 12px; color: #999; margin-top: 10px;">
+              Dica: Verifique se há documentos na coleção 'users' no Firestore
+            </p>
+          </div>
+        `;
+        atualizarEstatisticasUsuarios([]);
+        return;
+      }
+      
+      // PASSO 6: Processar documentos
+      console.log("\n--- PROCESSANDO DOCUMENTOS ---");
+      let html = "";
+      let usuarios = [];
+      let docIndex = 0;
+      
+      snapshot.forEach(doc => {
+        docIndex++;
+        try {
+          const id = doc.id;
+          const data = doc.data();
+          
+          console.log(`  Doc ${docIndex}:`);
+          console.log(`    ID: ${id}`);
+          console.log(`    Campos:`, Object.keys(data));
+          
+          usuarios.push({
+            uid: id,
+            ...data
+          });
+        } catch (docError) {
+          console.warn(`  ⚠️ Erro ao processar documento ${docIndex}:`, docError);
+        }
+      });
+      
+      console.log(`\n✅ ${usuarios.length} usuário(s) processado(s) corretamente`);
+      atualizarDebug(`📊 Usuários: ✅ ${usuarios.length} usuário(s) carregado(s)`);
+      
+      // PASSO 7: Renderizar usuários
+      console.log("\n--- RENDERIZANDO HTML ---");
+      let errosRenderizacao = 0;
+      
+      usuarios.forEach((user, index) => {
+        try {
+          const saldo = user.saldo || 0;
+          const email = user.email || "Email não fornecido";
+          const dataCriacao = user.dataCriacao;
+          const telefone = user.telefone || "Não informado";
+          const status = user.status || "ativo";
+          
+          let dataCriacaoFormatada = "Data não informada";
+          if (dataCriacao) {
+            try {
+              if (typeof dataCriacao.toDate === 'function') {
+                dataCriacaoFormatada = new Date(dataCriacao.toDate()).toLocaleString("pt-BR");
+              } else if (dataCriacao instanceof Date) {
+                dataCriacaoFormatada = dataCriacao.toLocaleString("pt-BR");
+              } else if (typeof dataCriacao === 'string') {
+                dataCriacaoFormatada = new Date(dataCriacao).toLocaleString("pt-BR");
+              } else if (typeof dataCriacao === 'number') {
+                dataCriacaoFormatada = new Date(dataCriacao).toLocaleString("pt-BR");
+              }
+            } catch (dateError) {
+              console.warn(`  ⚠️ Erro ao formatar data do usuário ${user.uid}:`, dateError);
+            }
+          }
+          
+          const statusColor = status === "ativo" ? "#28a745" : status === "desativado" ? "#dc3545" : "#ffc107";
+          const statusTexto = status === "ativo" ? "✅ Ativo" : status === "desativado" ? "❌ Desativado" : "⚠️ Pendente";
+          const senha = user.senha || "Nenhuma senha configurada";
+          const numeroUsuario = gerarNumeroUsuario(user.uid);
+          
+          html += `
+            <div class="deposito-card" style="padding: 25px; gap: 25px;">
+              <div class="deposito-info">
+                <div class="deposito-valor" style="color: ${statusColor}; margin-bottom: 15px;">
+                  ${formatador.format(saldo)}
+                </div>
+                <div style="font-size: 15px; margin: 12px 0; font-weight: bold; color: #667eea;">
+                  🔢 <strong>Nº:</strong> ${numeroUsuario}
+                </div>
+                <div style="font-size: 15px; margin: 12px 0; font-weight: bold;">
+                  📧 <strong>${email}</strong>
+                </div>
+                <div style="font-size: 13px; color: #666; margin: 8px 0;">
+                  📝 <strong>Nome:</strong> ${user.nome || "Não informado"}
+                </div>
+                <div style="font-size: 13px; color: #666; margin: 8px 0;">
+                  � <strong>Tel:</strong> ${user.telefone || "Não informado"}
+                </div>
+                <div style="font-size: 13px; color: #666; margin: 8px 0;">
+                  �🔑 <strong>Senha:</strong> <span style="font-family: monospace; background: #f5f5f5; padding: 3px 8px; border-radius: 3px; color: #28a745; font-weight: bold;">${senha}</span>
+                </div>
+                <div class="deposito-uid" style="font-size: 12px;">
+                  🆔 UID: ${user.uid}
+                </div>
+                <div style="font-size: 13px; color: #666; margin: 8px 0;">
+                  📱 <strong>Tel:</strong> ${telefone}
+                </div>
+                <div style="font-size: 13px; color: #666; margin: 8px 0;">
+                  🔗 <strong>Ref:</strong> ${user.ref || "N/A"}
+                </div>
+                <div class="deposito-data" style="font-size: 12px; margin-top: 10px;">
+                  📅 Cadastro: ${dataCriacaoFormatada}
+                </div>
+                <div style="margin-top: 15px; font-size: 13px; color: #666;">
+                  <strong>Status:</strong> <span style="color: ${statusColor}; font-weight: bold;">${statusTexto}</span>
+                </div>
+              </div>
+              <div class="deposito-actions" style="flex-direction: column; gap: 8px; min-width: 180px;">
+                <button class="btn" onclick="editarUsuario('${user.uid}')" style="background: #007bff; color: white; font-size: 14px; padding: 12px 15px; font-weight: bold;">
+                  ✏️ EDITAR
+                </button>
+                <button class="btn" onclick="visualizarUsuario('${user.uid}')" style="background: #17a2b8; color: white; font-size: 13px; padding: 10px 15px;">
+                  👁️ Detalhes
+                </button>
+                <button class="btn" onclick="abrirModalEditarSenha('${user.uid}', '${email}')" style="background: #6c3fb5; color: white; font-size: 13px; padding: 10px 15px;">
+                  🔐 Editar Senha
+                </button>
+                <button class="btn" onclick="mostrarSenhaUsuario('${user.uid}')" style="background: #ffc107; color: #333; font-size: 13px; padding: 10px 15px;" id="btn-mostrar-senha-${user.uid}">
+                  🔑 Mostrar Senha
+                </button>
+                <button class="btn btn-rejeitar" onclick="desativarUsuario('${user.uid}')" style="padding: 10px 15px; font-size: 13px;">
+                  🚫 ${status === "ativo" ? "Desativar" : "Ativar"}
+                </button>
+                <button class="btn-delete" onclick="abrirConfirmacaoDelete('${user.uid}', '${email}')" style="font-size: 13px; padding: 10px 15px;">
+                  🗑️ Deletar
+                </button>
+              </div>
+            </div>
+          `;
+        } catch (renderError) {
+          console.warn(`⚠️ Erro ao renderizar usuário ${index}:`, renderError);
+          errosRenderizacao++;
+        }
+      });
+      
+      if (errosRenderizacao > 0) {
+        console.warn(`⚠️ ${errosRenderizacao} erro(s) de renderização`);
+      }
+      
+      console.log("✅ HTML renderizado com sucesso");
+      atualizarEstatisticasUsuarios(usuarios);
+      container.innerHTML = html;
+      
+      console.log("\n═══════════════════════════════════════════════════════════");
+      console.log("✅ CARREGAMENTO CONCLUÍDO COM SUCESSO");
+      console.log("═══════════════════════════════════════════════════════════\n");
+
+    }, // FIM DO CALLBACK DE SUCESSO
+    
+    // Callback de erro - TRATAMENTO ROBUSTO
+    (error) => {
+      console.error("\n❌ ERRO NO ONSNAPSHOT");
+      console.error("═══════════════════════════════════════════════════════════");
+      console.error("Timestamp:", new Date().toLocaleTimeString());
+      console.error("Error Code:", error.code);
+      console.error("Error Message:", error.message);
+      console.error("Error Stack:", error.stack);
+      console.error("═══════════════════════════════════════════════════════════\n");
+      
+      // Determinar tipo de erro e mensagem appropriada
+      let mensagemErro = error.message;
+      let solucao = "";
+      
+      if (error.code === "permission-denied") {
+        mensagemErro = "Permissão negada ao acessar Firestore";
+        solucao = "Verifique as regras de segurança do Firestore em Rules";
+        console.error("🔐 DIAGNÓSTICO: Problema de permissão no Firestore");
+        console.error("   Possíveis causas:");
+        console.error("   1. Usuário não está autenticado");
+        console.error("   2. Regras de segurança estão bloqueando leitura");
+        console.error("   3. Documento 'users' não tem campo 'uid' necessário para where()");
+      } else if (error.code === "failed-precondition") {
+        mensagemErro = "Firestore não está pronto ou índice não existe";
+        solucao = "Clique no link que aparece no console do Firestore para criar o índice";
+        console.error("📑 DIAGNÓSTICO: Problema de índice ou precondição");
+      } else if (error.code === "unavailable") {
+        mensagemErro = "Serviço do Firestore indisponível";
+        solucao = "Verifique sua conexão de internet e tente novamente";
+        console.error("🌐 DIAGNÓSTICO: Firestore não acessível");
+      } else if (error.code === "unauthenticated") {
+        mensagemErro = "Usuário não autenticado";
+        solucao = "Faça login no painel antes de acessar os dados";
+        console.error("🔑 DIAGNÓSTICO: Autenticação necessária");
+      } else if (error.message && error.message.includes("Collection")) {
+        mensagemErro = "Coleção 'users' não encontrada";
+        solucao = "Crie a coleção 'users' no Firestore ou verifique o nome";
+        console.error("📂 DIAGNÓSTICO: Coleção não existe");
+      }
+      
+      atualizarDebug(`❌ Usuários: ${mensagemErro}`);
+      
+      // Mostrar erro na tela com mais detalhes
+      container.innerHTML = `
+        <div class="empty-state" style="background: #ffe6e6; padding: 20px; border-radius: 10px;">
+          <div class="empty-state-icon">❌</div>
+          <p><strong>ERRO ao carregar usuários</strong></p>
+          <p style="font-size: 13px; color: #666; margin-top: 10px;">
+            <strong>Motivo:</strong> ${mensagemErro}
+          </p>
+          <p style="font-size: 12px; color: #666; margin-top: 10px;">
+            <strong>Código:</strong> ${error.code || "UNKNOWN"}
+          </p>
+          ${solucao ? `<p style="font-size: 12px; color: #0066cc; margin-top: 10px; padding: 10px; background: #e6f2ff; border-radius: 5px;"><strong>💡 Solução:</strong> ${solucao}</p>` : ""}
+          <p style="font-size: 11px; color: #999; margin-top: 15px;">
+            Abra o console do navegador (F12) para mais detalhes
+          </p>
+        </div>
+      `;
+    } // FIM DO CALLBACK DE ERRO
+  );
+  
+  console.log("✅ Listener registrado com sucesso");
+  console.log("Você pode chamar unsubscribe() para parar de escutar mudanças");
+}
+
+
+function atualizarEstatisticasUsuarios(usuarios) {
+  let totalUsuarios = usuarios.length;
+  let totalSaldo = 0;
+  let maiorSaldo = 0;
+
+  usuarios.forEach(user => {
+    const saldo = user.saldo || 0;
+    totalSaldo += saldo;
+    if (saldo > maiorSaldo) {
+      maiorSaldo = saldo;
+    }
+  });
+
+  const mediasSaldo = totalUsuarios > 0 ? totalSaldo / totalUsuarios : 0;
+
+  document.getElementById("stat-total-usuarios").innerText = totalUsuarios;
+  document.getElementById("stat-saldo-total").innerText = formatador.format(totalSaldo);
+  document.getElementById("stat-saldo-medio").innerText = formatador.format(mediasSaldo);
+  document.getElementById("stat-maior-saldo").innerText = formatador.format(maiorSaldo);
+}
+
+function filtrarUsuarios() {
+  const filtro = document.getElementById("input-filtro-usuario").value.toLowerCase();
+  
+  if (!filtro) {
+    carregarUsuarios();
+    return;
+  }
+
+  const container = document.getElementById("usuarios-list");
+  const items = container.querySelectorAll(".deposito-card");
+  
+  items.forEach(item => {
+    const texto = item.innerText.toLowerCase();
+    if (texto.includes(filtro)) {
+      item.style.display = "flex";
+    } else {
+      item.style.display = "none";
+    }
+  });
+}
+
+function recarregarUsuarios() {
+  document.getElementById("input-filtro-usuario").value = "";
+  carregarUsuarios();
+}
+
+function visualizarUsuario(uid) {
+  atualizarDebug(`👁️ Visualizando detalhes do usuário: ${uid}`);
+  
+  db.collection("users").doc(uid).get()
+    .then(doc => {
+      if (doc.exists) {
+        const user = doc.data();
+        const email = user.email || "Não informado";
+        const saldo = user.saldo || 0;
+        const status = user.status || "ativo";
+        const telefone = user.telefone || "Não informado";
+        const dataCriacao = user.dataCriacao ? new Date(user.dataCriacao.toDate ? user.dataCriacao.toDate() : user.dataCriacao).toLocaleString("pt-BR") : "Não informado";
+        
+        alert(`👤 DETALHES DO USUÁRIO\n\nUID: ${uid}\nEmail: ${email}\nTelefone: ${telefone}\nSaldo: R$ ${saldo.toFixed(2)}\nStatus: ${status}\nCadastro: ${dataCriacao}`);
+      } else {
+        alert("❌ Usuário não encontrado");
+      }
+    })
+    .catch(error => {
+      atualizarDebug(`❌ Erro ao carregar detalhes: ${error.message}`);
+      alert("❌ Erro: " + error.message);
+    });
+}
+
+function editarUsuario(uid) {
+  console.log("🔧 Abrindo modal de edição para UID:", uid);
+  atualizarDebug(`✏️ Editando usuário: ${uid}`);
+  
+  // Limpar formulário
+  document.getElementById("form-editar-usuario").reset();
+  limparAlertaModal();
+  
+  // Desabilitar botão de salvar durante carregamento
+  const btnSalvar = document.getElementById("btn-salvar-usuario");
+  btnSalvar.disabled = true;
+  document.getElementById("texto-salvar").textContent = "⏳ Carregando...";
+  
+  // Carregar dados do usuário do Firestore
+  db.collection("users").doc(uid).get()
+    .then(doc => {
+      if (doc.exists) {
+        const user = doc.data();
+        
+        // Popular formulário
+        document.getElementById("editar-uid").value = uid;
+        document.getElementById("editar-email").value = user.email || "";
+        document.getElementById("editar-nome").value = user.nome || "";
+        document.getElementById("editar-telefone").value = user.telefone || "";
+        document.getElementById("editar-ref").value = user.ref || "";
+        document.getElementById("editar-saldo").value = (user.saldo !== undefined ? user.saldo.toFixed(2) : "0.00");
+        document.getElementById("editar-status").value = user.status || "ativo";
+        
+        // Armazenar UID no atributo data para usar no submit
+        document.getElementById("form-editar-usuario").setAttribute("data-uid", uid);
+        
+        // Habilitar botão e abrir modal
+        btnSalvar.disabled = false;
+        document.getElementById("texto-salvar").textContent = "💾 Salvar Alterações";
+        
+        // Mostrar modal
+        document.getElementById("modal-editar-usuario").classList.add("show");
+        
+        // Focar no primeiro campo editável
+        document.getElementById("editar-nome").focus();
+        
+        console.log("✅ Dados do usuário carregados:", user);
+        
+      } else {
+        console.error("❌ Usuário não encontrado no Firestore");
+        mostrarAlertaModal("❌ Erro: Usuário não encontrado no Firestore", "error");
+        btnSalvar.disabled = false;
+        document.getElementById("texto-salvar").textContent = "💾 Salvar Alterações";
+      }
+    })
+    .catch(error => {
+      console.error("❌ Erro ao carregar usuário:", error);
+      atualizarDebug(`❌ Erro ao carregar usuário: ${error.message}`);
+      mostrarAlertaModal(`❌ Erro ao carregar usuário: ${error.message}`, "error");
+      btnSalvar.disabled = false;
+      document.getElementById("texto-salvar").textContent = "💾 Salvar Alterações";
+    });
+}
+
+// =============================
+// SALVAR USUÁRIO - MODAL FORM
+// =============================
+
+function salvarUsuario(event) {
+  event.preventDefault();
+  
+  const uid = document.getElementById("form-editar-usuario").getAttribute("data-uid");
+  const nome = document.getElementById("editar-nome").value.trim();
+  const telefone = document.getElementById("editar-telefone").value.trim();
+  const ref = document.getElementById("editar-ref").value.trim();
+  const saldo = parseFloat(document.getElementById("editar-saldo").value) || 0;
+  const status = document.getElementById("editar-status").value;
+  
+  console.log("💾 Iniciando salvamento...");
+  console.log("   UID:", uid);
+  console.log("   Nome:", nome);
+  console.log("   Telefone:", telefone);
+  console.log("   Ref:", ref);
+  console.log("   Saldo:", saldo);
+  console.log("   Status:", status);
+  
+  // ===== VALIDAÇÕES =====
+  if (!nome) {
+    console.warn("⚠️ Nome vazio");
+    mostrarAlertaModal("❌ Nome não pode ser vazio", "error");
+    document.getElementById("editar-nome").focus();
+    return;
+  }
+  
+  if (nome.length < 2) {
+    console.warn("⚠️ Nome muito curto");
+    mostrarAlertaModal("❌ Nome deve ter no mínimo 2 caracteres", "error");
+    document.getElementById("editar-nome").focus();
+    return;
+  }
+  
+  if (nome.length > 100) {
+    console.warn("⚠️ Nome muito longo");
+    mostrarAlertaModal("❌ Nome não pode ultrapassar 100 caracteres", "error");
+    return;
+  }
+  
+  if (telefone && typeof telefone !== "string") {
+    console.warn("⚠️ Telefone inválido");
+    mostrarAlertaModal("❌ Telefone deve ser um texto válido", "error");
+    return;
+  }
+  
+  if (telefone && telefone.length > 20) {
+    console.warn("⚠️ Telefone muito longo");
+    mostrarAlertaModal("❌ Telefone não pode ultrapassar 20 caracteres", "error");
+    return;
+  }
+  
+  if (ref && ref.length > 100) {
+    console.warn("⚠️ Referência muito longa");
+    mostrarAlertaModal("❌ Referência não pode ultrapassar 100 caracteres", "error");
+    return;
+  }
+  
+  if (saldo < 0) {
+    console.warn("⚠️ Saldo negativo");
+    mostrarAlertaModal("❌ Saldo não pode ser negativo", "error");
+    document.getElementById("editar-saldo").focus();
+    return;
+  }
+  
+  if (saldo > 999999999) {
+    console.warn("⚠️ Saldo muito alto");
+    mostrarAlertaModal("❌ Saldo muito alto - máximo permitido: R$ 999.999.999,00", "error");
+    return;
+  }
+  
+  if (!["ativo", "desativado", "pendente"].includes(status)) {
+    console.warn("⚠️ Status inválido");
+    mostrarAlertaModal("❌ Status inválido", "error");
+    return;
+  }
+  
+  // ===== PREPARAR DADOS =====
+  const dadosAtualizacao = {
+    nome: nome,
+    telefone: telefone || null,
+    ref: ref || null,
+    saldo: saldo,
+    status: status,
+    atualizadoEm: new Date()
+  };
+  
+  console.log("✅ Validações passaram. Dados prontos:", dadosAtualizacao);
+  
+  // ===== DESABILITAR BOTÃO E MOSTRAR LOADING =====
+  const btnSalvar = document.getElementById("btn-salvar-usuario");
+  btnSalvar.disabled = true;
+  document.getElementById("spinner-salvar").style.display = "inline-block";
+  document.getElementById("texto-salvar").textContent = "⏳ Salvando...";
+  
+  // ===== VERIFICAR SE DOCUMENTO EXISTE =====
+  console.log("🔍 Verificando se documento existe...");
+  db.collection("users").doc(uid).get()
+    .then(docSnapshot => {
+      if (!docSnapshot.exists) {
+        throw new Error(`Documento com UID "${uid}" não foi encontrado no Firestore`);
+      }
+      
+      console.log("✅ Documento encontrado. Atualizando...");
+      
+      // ===== ATUALIZAR NO FIRESTORE =====
+      return db.collection("users").doc(uid).update(dadosAtualizacao);
+    })
+    .then(() => {
+      console.log("✅ Documento atualizado com sucesso!");
+      
+      // Mostrar sucesso
+      mostrarAlertaModal("✅ Usuário atualizado com sucesso!", "success");
+      atualizarDebug(`✅ Usuário ${uid} atualizado com sucesso`);
+      
+      // Resetar botão
+      btnSalvar.disabled = false;
+      document.getElementById("spinner-salvar").style.display = "none";
+      document.getElementById("texto-salvar").textContent = "💾 Salvar Alterações";
+      
+      // Fechar modal após 1.5s
+      setTimeout(() => {
+        fecharModalEditarUsuario();
+        // Recarregar a lista de usuários
+        carregarUsuarios();
+      }, 1500);
+    })
+    .catch(error => {
+      console.error("❌ Erro ao atualizar documento:", error);
+      atualizarDebug(`❌ Erro ao atualizar: ${error.message}`);
+      
+      // Mostrar erro detalhado
+      let mensagemErro = error.message;
+      if (error.code === "permission-denied") {
+        mensagemErro = "Permissão negada. Verifique as regras de segurança do Firestore";
+      } else if (error.code === "not-found") {
+        mensagemErro = "Documento não encontrado no Firestore";
+      } else if (!navigator.onLine) {
+        mensagemErro = "Sem conexão com a internet";
+      }
+      
+      mostrarAlertaModal(`❌ Erro ao salvar: ${mensagemErro}`, "error");
+      
+      // Resetar botão
+      btnSalvar.disabled = false;
+      document.getElementById("spinner-salvar").style.display = "none";
+      document.getElementById("texto-salvar").textContent = "💾 Salvar Alterações";
+    });
+}
+
+// =============================
+// FUNÇÕES HELPER DO MODAL
+// =============================
+
+function fecharModalEditarUsuario() {
+  console.log("🚪 Fechando modal");
+  document.getElementById("modal-editar-usuario").classList.remove("show");
+  document.getElementById("form-editar-usuario").reset();
+  limparAlertaModal();
+}
+
+function mostrarAlertaModal(mensagem, tipo) {
+  const alertDiv = document.getElementById("modal-alert");
+  alertDiv.className = `alert-message show ${tipo}`;
+  alertDiv.innerHTML = `<strong>${mensagem}</strong>`;
+  
+  console.log(`ℹ️ Alerta [${tipo}]: ${mensagem}`);
+  
+  // Auto-fechar alertas de sucesso após 3s
+  if (tipo === "success") {
+    setTimeout(() => {
+      limparAlertaModal();
+    }, 3000);
+  }
+}
+
+function limparAlertaModal() {
+  const alertDiv = document.getElementById("modal-alert");
+  alertDiv.className = "alert-message";
+  alertDiv.innerHTML = "";
+}
+
+// Fechar modal ao clicar fora (no overlay)
+document.addEventListener("DOMContentLoaded", function() {
+  const modal = document.getElementById("modal-editar-usuario");
+  if (modal) {
+    modal.addEventListener("click", function(event) {
+      if (event.target === modal) {
+        fecharModalEditarUsuario();
+      }
+    });
+  }
+  
+  // Fechar modal com tecla ESC
+  document.addEventListener("keydown", function(event) {
+    if (event.key === "Escape") {
+      fecharModalEditarUsuario();
+    }
+  });
+});
+
+// =============================
+// NOVO USUÁRIO - MODAL
+// =============================
+
+function abrirModalNovoUsuario() {
+  console.log("🆕 Abrindo modal para criar novo usuário");
+  atualizarDebug("➕ Criando novo usuário");
+  
+  // Limpar formulário
+  document.getElementById("form-novo-usuario").reset();
+  document.getElementById("novo-saldo").value = "0.00";
+  document.getElementById("novo-status").value = "ativo";
+  limparAlertaModalNovo();
+  
+  // Mostrar modal
+  document.getElementById("modal-novo-usuario").classList.add("show");
+  
+  // Focar no primeiro campo
+  document.getElementById("novo-email").focus();
+}
+
+function fecharModalNovoUsuario() {
+  console.log("🚪 Fechando modal de novo usuário");
+  document.getElementById("modal-novo-usuario").classList.remove("show");
+  document.getElementById("form-novo-usuario").reset();
+  limparAlertaModalNovo();
+}
+
+function mostrarAlertaModalNovo(mensagem, tipo) {
+  const alertDiv = document.getElementById("modal-novo-alert");
+  alertDiv.className = `alert-message show ${tipo}`;
+  alertDiv.innerHTML = `<strong>${mensagem}</strong>`;
+  
+  console.log(`ℹ️ Alerta [${tipo}]: ${mensagem}`);
+  
+  // Auto-fechar alertas de sucesso após 3s
+  if (tipo === "success") {
+    setTimeout(() => {
+      limparAlertaModalNovo();
+    }, 3000);
+  }
+}
+
+function limparAlertaModalNovo() {
+  const alertDiv = document.getElementById("modal-novo-alert");
+  alertDiv.className = "alert-message";
+  alertDiv.innerHTML = "";
+}
+
+function criarNovoUsuario(event) {
+  event.preventDefault();
+  
+  const email = document.getElementById("novo-email").value.trim().toLowerCase();
+  const nome = document.getElementById("novo-nome").value.trim();
+  const telefone = document.getElementById("novo-telefone").value.trim();
+  const ref = document.getElementById("novo-ref").value.trim();
+  const saldo = parseFloat(document.getElementById("novo-saldo").value) || 0;
+  const status = document.getElementById("novo-status").value;
+  
+  console.log("💾 Iniciando criação de novo usuário...");
+  console.log("   Email:", email);
+  console.log("   Nome:", nome);
+  console.log("   Telefone:", telefone);
+  console.log("   Ref:", ref);
+  console.log("   Saldo:", saldo);
+  console.log("   Status:", status);
+  
+  // ===== VALIDAÇÕES =====
+  if (!email) {
+    console.warn("⚠️ Email vazio");
+    mostrarAlertaModalNovo("❌ Email não pode ser vazio", "error");
+    document.getElementById("novo-email").focus();
+    return;
+  }
+  
+  // Validar email format
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    console.warn("⚠️ Email inválido");
+    mostrarAlertaModalNovo("❌ Email inválido. Use um formato válido (ex: usuario@email.com)", "error");
+    document.getElementById("novo-email").focus();
+    return;
+  }
+  
+  if (!nome) {
+    console.warn("⚠️ Nome vazio");
+    mostrarAlertaModalNovo("❌ Nome não pode ser vazio", "error");
+    document.getElementById("novo-nome").focus();
+    return;
+  }
+  
+  if (nome.length < 2) {
+    console.warn("⚠️ Nome muito curto");
+    mostrarAlertaModalNovo("❌ Nome deve ter no mínimo 2 caracteres", "error");
+    document.getElementById("novo-nome").focus();
+    return;
+  }
+  
+  if (nome.length > 100) {
+    console.warn("⚠️ Nome muito longo");
+    mostrarAlertaModalNovo("❌ Nome não pode ultrapassar 100 caracteres", "error");
+    return;
+  }
+  
+  if (telefone && telefone.length > 20) {
+    console.warn("⚠️ Telefone muito longo");
+    mostrarAlertaModalNovo("❌ Telefone não pode ultrapassar 20 caracteres", "error");
+    return;
+  }
+  
+  if (ref && ref.length > 100) {
+    console.warn("⚠️ Referência muito longa");
+    mostrarAlertaModalNovo("❌ Referência não pode ultrapassar 100 caracteres", "error");
+    return;
+  }
+  
+  if (saldo < 0) {
+    console.warn("⚠️ Saldo negativo");
+    mostrarAlertaModalNovo("❌ Saldo não pode ser negativo", "error");
+    document.getElementById("novo-saldo").focus();
+    return;
+  }
+  
+  if (saldo > 999999999) {
+    console.warn("⚠️ Saldo muito alto");
+    mostrarAlertaModalNovo("❌ Saldo muito alto - máximo permitido: R$ 999.999.999,00", "error");
+    return;
+  }
+  
+  if (!["ativo", "desativado", "pendente"].includes(status)) {
+    console.warn("⚠️ Status inválido");
+    mostrarAlertaModalNovo("❌ Status inválido", "error");
+    return;
+  }
+  
+  // ===== DESABILITAR BOTÃO E MOSTRAR LOADING =====
+  const btnCriar = document.getElementById("btn-criar-usuario");
+  btnCriar.disabled = true;
+  document.getElementById("spinner-criar").style.display = "inline-block";
+  document.getElementById("texto-criar").textContent = "⏳ Criando...";
+  
+  // ===== VERIFICAR SE EMAIL JÁ EXISTE =====
+  console.log("🔍 Verificando se email já existe...");
+  db.collection("users")
+    .where("email", "==", email)
+    .limit(1)
+    .get()
+    .then(snapshot => {
+      if (!snapshot.empty) {
+        throw new Error(`Email "${email}" já está cadastrado no sistema`);
+      }
+      
+      console.log("✅ Email disponível. Criando documento...");
+      
+      // ===== PREPARAR DADOS DO NOVO USUÁRIO =====
+      const novoUsuario = {
+        email: email,
+        nome: nome,
+        telefone: telefone || null,
+        ref: ref || null,
+        saldo: saldo,
+        status: status,
+        dataCriacao: new Date(),
+        atualizadoEm: new Date()
+      };
+      
+      console.log("✅ Dados preparados:", novoUsuario);
+      
+      // ===== CRIAR NOVO DOCUMENTO COM EMAIL COMO ID =====
+      // Usar email como parte do ID para garantir unicidade
+      const novoId = email.replace(/[^a-zA-Z0-9]/g, "_");
+      
+      return db.collection("users").doc(novoId).set(novoUsuario);
+    })
+    .then(() => {
+      console.log("✅ Novo usuário criado com sucesso!");
+      
+      // Mostrar sucesso
+      mostrarAlertaModalNovo("✅ Novo usuário criado com sucesso!", "success");
+      atualizarDebug(`✅ Novo usuário criado: ${email}`);
+      
+      // Resetar botão
+      btnCriar.disabled = false;
+      document.getElementById("spinner-criar").style.display = "none";
+      document.getElementById("texto-criar").textContent = "✏️ Criar Usuário";
+      
+      // Fechar modal após 1.5s
+      setTimeout(() => {
+        fecharModalNovoUsuario();
+        // Recarregar a lista de usuários
+        carregarUsuarios();
+      }, 1500);
+    })
+    .catch(error => {
+      console.error("❌ Erro ao criar usuário:", error);
+      atualizarDebug(`❌ Erro ao criar: ${error.message}`);
+      
+      // Mostrar erro detalhado
+      let mensagemErro = error.message;
+      if (error.code === "permission-denied") {
+        mensagemErro = "Permissão negada. Verifique as regras de segurança do Firestore";
+      } else if (!navigator.onLine) {
+        mensagemErro = "Sem conexão com a internet";
+      }
+      
+      mostrarAlertaModalNovo(`❌ Erro ao criar: ${mensagemErro}`, "error");
+      
+      // Resetar botão
+      btnCriar.disabled = false;
+      document.getElementById("spinner-criar").style.display = "none";
+      document.getElementById("texto-criar").textContent = "✏️ Criar Usuário";
+    });
+}
+
+// Fechar modal ao clicar fora (no overlay)
+document.addEventListener("DOMContentLoaded", function() {
+  const modalNovo = document.getElementById("modal-novo-usuario");
+  if (modalNovo) {
+    modalNovo.addEventListener("click", function(event) {
+      if (event.target === modalNovo) {
+        fecharModalNovoUsuario();
+      }
+    });
+  }
+  
+  // Fechar modals com tecla ESC
+  document.addEventListener("keydown", function(event) {
+    if (event.key === "Escape") {
+      fecharModalNovoUsuario();
+    }
+  });
+});
+
+function desativarUsuario(uid) {
+  db.collection("users").doc(uid).get()
+    .then(doc => {
+      if (doc.exists) {
+        const user = doc.data();
+        const statusAtual = user.status || "ativo";
+        const novoStatus = statusAtual === "ativo" ? "desativado" : "ativo";
+        
+        if (confirm(`⚠️ ${novoStatus === "desativado" ? "Desativar" : "Ativar"} usuário ${uid}?\n\nEsta ação pode ser revertida.`)) {
+          db.collection("users").doc(uid).update({
+            status: novoStatus,
+            statusAlteradoEm: new Date()
+          })
+            .then(() => {
+              atualizarDebug(`✅ Usuário ${uid} - Status: ${novoStatus}`);
+              alert(`✅ Usuário ${novoStatus === "ativo" ? "ativado" : "desativado"}!`);
+              recarregarUsuarios();
+            })
+            .catch(error => {
+              atualizarDebug(`❌ Erro ao alterar status: ${error.message}`);
+              alert("❌ Erro: " + error.message);
+            });
+        }
+      } else {
+        alert("❌ Usuário não encontrado");
+      }
+    })
+    .catch(error => {
+      atualizarDebug(`❌ Erro ao carregar usuário: ${error.message}`);
+      alert("❌ Erro: " + error.message);
+    });
+}
+
+// =============================
+// DELETAR USUÁRIO
+// =============================
+
+let usuarioParaDeleteUid = null;
+
+function abrirConfirmacaoDelete(uid, email) {
+  console.log("🗑️ Abrindo confirmação de exclusão para UID:", uid);
+  usuarioParaDeleteUid = uid;
+  
+  document.getElementById("confirmar-delete-uid").textContent = uid;
+  document.getElementById("modal-deletar-confirmacao").classList.add("show");
+  
+  const btnConfirmar = document.getElementById("btn-confirmar-delete");
+  btnConfirmar.disabled = false;
+  btnConfirmar.textContent = "🗑️ Excluir Permanentemente";
+}
+
+function fecharModalDeleteConfirmacao() {
+  console.log("🚪 Fechando modal de confirmação");
+  document.getElementById("modal-deletar-confirmacao").classList.remove("show");
+  usuarioParaDeleteUid = null;
+}
+
+function confirmarDeleteUsuario() {
+  if (!usuarioParaDeleteUid) {
+    console.error("❌ UID não definido");
+    return;
+  }
+  
+  const uid = usuarioParaDeleteUid;
+  console.log("💾 Confirmando exclusão do UID:", uid);
+  
+  const btnConfirmar = document.getElementById("btn-confirmar-delete");
+  btnConfirmar.disabled = true;
+  btnConfirmar.textContent = "⏳ Excluindo...";
+  
+  // Deletar o documento do Firestore
+  db.collection("users").doc(uid).delete()
+    .then(() => {
+      console.log("✅ Usuário deletado com sucesso!");
+      atualizarDebug(`✅ Usuário ${uid} deletado permanentemente`);
+      
+      // Mostrar notificação
+      alert("✅ Usuário deletado com sucesso!");
+      
+      // Fechar modal
+      fecharModalDeleteConfirmacao();
+      
+      // Recarregar lista
+      carregarUsuarios();
+    })
+    .catch(error => {
+      console.error("❌ Erro ao deletar usuário:", error);
+      atualizarDebug(`❌ Erro ao deletar: ${error.message}`);
+      
+      let mensagemErro = error.message;
+      if (error.code === "permission-denied") {
+        mensagemErro = "Permissão negada. Verifique as regras de segurança do Firestore";
+      } else if (!navigator.onLine) {
+        mensagemErro = "Sem conexão com a internet";
+      }
+      
+      alert(`❌ Erro ao deletar: ${mensagemErro}`);
+      
+      btnConfirmar.disabled = false;
+      btnConfirmar.textContent = "🗑️ Excluir Permanentemente";
+    });
+}
+
+// Fechar modal ao clicar fora
+document.addEventListener("DOMContentLoaded", function() {
+  const modal = document.getElementById("modal-deletar-confirmacao");
+  if (modal) {
+    modal.addEventListener("click", function(event) {
+      if (event.target === modal) {
+        fecharModalDeleteConfirmacao();
+      }
+    });
+  }
+  
+  // Event listener para modal-editar-senha
+  const modalEditarSenha = document.getElementById("modal-editar-senha");
+  if (modalEditarSenha) {
+    modalEditarSenha.addEventListener("click", function(event) {
+      if (event.target === modalEditarSenha) {
+        fecharModalEditarSenha();
+      }
+    });
+  }
+  
+  // Event listener para modal-exibir-senha
+  const modalExibirSenha = document.getElementById("modal-exibir-senha");
+  if (modalExibirSenha) {
+    modalExibirSenha.addEventListener("click", function(event) {
+      if (event.target === modalExibirSenha) {
+        fecharModalExibirSenha();
+      }
+    });
+  }
+  
+  // Fechar modais com tecla ESC
+  document.addEventListener("keydown", function(event) {
+    if (event.key === "Escape") {
+      const modalEditarSenha = document.getElementById("modal-editar-senha");
+      const modalExibirSenha = document.getElementById("modal-exibir-senha");
+      
+      if (modalEditarSenha && modalEditarSenha.classList.contains("show")) {
+        fecharModalEditarSenha();
+      }
+      if (modalExibirSenha && modalExibirSenha.classList.contains("show")) {
+        fecharModalExibirSenha();
+      }
+    }
+  });
+});
+
+// =============================
+// EXPORTAR DADOS
+// =============================
+
+function exportarDadosVisiveis() {
+  const formatSelect = document.getElementById("export-format-select-global") || document.getElementById("export-format-select");
+  const formato = formatSelect ? formatSelect.value : "csv";
+  const pageName = (document.title || "Dashboard").replace(/[^a-zA-Z0-9\-_ ]/g, "").replace(/\s+/g, "_");
+  const datePart = new Date().toISOString().split("T")[0];
+  const filenameBase = `${pageName}_${datePart}`;
+
+  const activeTab = document.querySelector(".tab-content.active");
+  const isVisible = element => {
+    if (!element) return false;
+    const style = window.getComputedStyle(element);
+    return style.display !== "none" && style.visibility !== "hidden" && element.offsetParent !== null && element.offsetWidth > 0 && element.offsetHeight > 0;
+  };
+
+  let table = null;
+  if (activeTab) {
+    table = Array.from(activeTab.querySelectorAll("table")).find(isVisible);
+  }
+
+  if (!table) {
+    table = Array.from(document.querySelectorAll("table")).find(isVisible);
+  }
+
+  if (!table) {
+    const visibleCards = Array.from(document.querySelectorAll("div[class*='-card']")).filter(isVisible);
+    if (activeTab) {
+      const activeCards = Array.from(activeTab.querySelectorAll("div[class*='-card']")).filter(isVisible);
+      if (activeCards.length > 0) {
+        return exportarCartoesVisiveis(activeCards, formato, `${filenameBase}`);
+      }
+    }
+
+    if (visibleCards.length > 0) {
+      return exportarCartoesVisiveis(visibleCards, formato, `${filenameBase}`);
+    }
+
+    alert("❌ Nenhuma tabela ou cartão visível encontrada nesta página. Navegue até a seção contendo dados e tente novamente.");
+    return;
+  }
+
+  const headers = Array.from(table.querySelectorAll("thead th")).map(th => th.textContent.trim());
+  const rows = [];
+  table.querySelectorAll("tbody tr").forEach(tr => {
+    const cells = Array.from(tr.querySelectorAll("td")).map(td => td.textContent.trim());
+    const hasCollapsedCell = tr.querySelector("td[colspan]");
+    if (cells.length === 0 || hasCollapsedCell) return;
+    rows.push(cells);
+  });
+
+  if (rows.length === 0) {
+    alert("❌ Nenhum dado visível para exportar.");
+    return;
+  }
+
+  if (formato === "xlsx") {
+    exportarTabelaParaXLSX(headers, rows, `${filenameBase}.xlsx`);
+  } else if (formato === "csv") {
+    exportarTabelaParaCSV(headers, rows, `${filenameBase}.csv`);
+  } else if (formato === "pdf") {
+    exportarTabelaParaPDF(headers, rows, `${filenameBase}.pdf`);
+  } else {
+    alert("❌ Formato de exportação inválido.");
+  }
+}
+
+function exportarCartoesVisiveis(cards, formato, filenameBase) {
+  const rows = cards.map(card => {
+    const text = Array.from(card.querySelectorAll("*"))
+      .map(el => el.childElementCount === 0 ? el.textContent.trim() : "")
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return [text];
+  }).filter(row => row[0]);
+
+  const headers = ["Conteúdo"];
+  if (rows.length === 0) {
+    alert("❌ Nenhum dado visível para exportar.");
+    return;
+  }
+
+  if (formato === "xlsx") {
+    exportarTabelaParaXLSX(headers, rows, `${filenameBase}.xlsx`);
+  } else if (formato === "csv") {
+    exportarTabelaParaCSV(headers, rows, `${filenameBase}.csv`);
+  } else if (formato === "pdf") {
+    exportarTabelaParaPDF(headers, rows, `${filenameBase}.pdf`);
+  } else {
+    alert("❌ Formato de exportação inválido.");
+  }
+}
+
+function exportarTabelaParaCSV(headers, rows, filename) {
+  const escapeValue = value => `"${value.replace(/"/g, '""')}"`;
+  const csvRows = [headers.map(escapeValue).join(",")];
+  rows.forEach(row => csvRows.push(row.map(escapeValue).join(",")));
+  const csvContent = csvRows.join("\r\n");
+
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  saveBlob(blob, filename);
+  alert(`✅ Arquivo exportado: ${filename}`);
+}
+
+function exportarTabelaParaXLSX(headers, rows, filename) {
+  if (typeof XLSX === "undefined") {
+    alert("❌ Biblioteca XLSX não carregada.");
+    return;
+  }
+
+  const worksheetData = [headers, ...rows];
+  const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Relatório");
+  const workbookOut = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+  const blob = new Blob([workbookOut], { type: "application/octet-stream" });
+  saveBlob(blob, filename);
+  alert(`✅ Arquivo exportado: ${filename}`);
+}
+
+function exportarTabelaParaPDF(headers, rows, filename) {
+  const jsPDFConstructor = window.jspdf && window.jspdf.jsPDF ? window.jspdf.jsPDF : window.jsPDF;
+  if (!jsPDFConstructor || typeof window.jspdf === "undefined") {
+    alert("❌ Biblioteca jsPDF não carregada.");
+    return;
+  }
+
+  const doc = new jsPDFConstructor({ orientation: "landscape", unit: "pt", format: "a4" });
+  const title = document.title || "Relatório";
+  doc.setFontSize(12);
+  doc.text(title, 40, 40);
+
+  doc.autoTable({
+    head: [headers],
+    body: rows,
+    startY: 60,
+    styles: { fontSize: 8 },
+    headStyles: { fillColor: [102, 126, 234], textColor: 255 },
+    alternateRowStyles: { fillColor: [245, 245, 245] },
+    margin: { left: 40, right: 40 }
+  });
+
+  doc.save(filename);
+  alert(`✅ Arquivo exportado: ${filename}`);
+}
+
+function saveBlob(blob, filename) {
+  const link = document.createElement("a");
+  const url = URL.createObjectURL(blob);
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function exportarDadosCSV() {
+  console.log("📥 Exportando dados em CSV...");
+  atualizarDebug("📥 Exportando CSV...");
+  
+  // Buscar todos os usuários
+  db.collection("users").get()
+    .then(snapshot => {
+      if (snapshot.empty) {
+        alert("❌ Nenhum usuário para exportar");
+        atualizarDebug("⚠️ Nenhum usuário encontrado para exportar");
+        return;
+      }
+      
+      let csvContent = "data:text/csv;charset=utf-8,";
+      csvContent += "UID,Email,Nome,Telefone,Referência,Saldo,Status,Data Criação\n";
+      
+      snapshot.forEach(doc => {
+        const user = doc.data();
+        const uid = doc.id;
+        const email = (user.email || "").replace(/"/g, '""');
+        const nome = (user.nome || "").replace(/"/g, '""');
+        const telefone = (user.telefone || "").replace(/"/g, '""');
+        const ref = (user.ref || "").replace(/"/g, '""');
+        const saldo = user.saldo || 0;
+        const status = user.status || "ativo";
+        
+        let dataCriacao = "";
+        if (user.dataCriacao) {
+          if (typeof user.dataCriacao.toDate === "function") {
+            dataCriacao = new Date(user.dataCriacao.toDate()).toLocaleString("pt-BR");
+          } else if (user.dataCriacao instanceof Date) {
+            dataCriacao = user.dataCriacao.toLocaleString("pt-BR");
+          }
+        }
+        
+        csvContent += `"${uid}","${email}","${nome}","${telefone}","${ref}",${saldo},"${status}","${dataCriacao}"\n`;
+      });
+      
+      // Criar link de download
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `usuarios_${new Date().toISOString().split("T")[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      console.log("✅ CSV exportado com sucesso!");
+      atualizarDebug("✅ CSV exportado com sucesso!");
+      alert(`✅ Arquivo exportado: usuarios_${new Date().toISOString().split("T")[0]}.csv`);
+    })
+    .catch(error => {
+      console.error("❌ Erro ao exportar CSV:", error);
+      atualizarDebug(`❌ Erro ao exportar: ${error.message}`);
+      alert("❌ Erro ao exportar: " + error.message);
+    });
+}
+
+function exportarDadosJSON() {
+  console.log("📥 Exportando dados em JSON...");
+  atualizarDebug("📥 Exportando JSON...");
+  
+  // Buscar todos os usuários
+  db.collection("users").get()
+    .then(snapshot => {
+      if (snapshot.empty) {
+        alert("❌ Nenhum usuário para exportar");
+        atualizarDebug("⚠️ Nenhum usuário encontrado para exportar");
+        return;
+      }
+      
+      const usuarios = [];
+      snapshot.forEach(doc => {
+        usuarios.push({
+          uid: doc.id,
+          ...doc.data()
+        });
+      });
+      
+      // Converter para JSON
+      const jsonContent = JSON.stringify(usuarios, null, 2);
+      
+      // Criar blob e link de download
+      const dataBlob = new Blob([jsonContent], { type: "application/json" });
+      const url = URL.createObjectURL(dataBlob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `usuarios_${new Date().toISOString().split("T")[0]}.json`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      console.log("✅ JSON exportado com sucesso!");
+      atualizarDebug("✅ JSON exportado com sucesso!");
+      alert(`✅ Arquivo exportado: usuarios_${new Date().toISOString().split("T")[0]}.json`);
+    })
+    .catch(error => {
+      console.error("❌ Erro ao exportar JSON:", error);
+      atualizarDebug(`❌ Erro ao exportar: ${error.message}`);
+      alert("❌ Erro ao exportar: " + error.message);
+    });
+}
+
+// =============================
+// EDITAR SENHA DO USUÁRIO
+// =============================
+
+function abrirModalEditarSenha(uid, email) {
+  console.log("🔐 Abrindo modal para editar senha do UID:", uid);
+  atualizarDebug(`🔐 Editando senha do usuário: ${uid}`);
+  
+  // Limpar formulário
+  document.getElementById("form-editar-senha").reset();
+  document.getElementById("mostrar-senhas-form").checked = false;
+  document.getElementById("nova-senha").type = "password";
+  document.getElementById("confirmar-senha").type = "password";
+  limparAlertaModalSenha();
+  
+  // Popular campos iniciais
+  document.getElementById("numero-usuario").value = "⏳ Carregando...";
+  document.getElementById("senha-uid").value = uid;
+  document.getElementById("senha-atual-display").textContent = "⏳ Carregando...";
+  
+  // Armazenar UID no atributo data
+  document.getElementById("form-editar-senha").setAttribute("data-uid", uid);
+  
+  // Habilitar botão
+  const btnSalvar = document.getElementById("btn-salvar-senha");
+  btnSalvar.disabled = false;
+  document.getElementById("texto-salvar-senha").textContent = "💾 Salvar Senha";
+  
+  // Mostrar modal
+  document.getElementById("modal-editar-senha").classList.add("show");
+  
+  // Buscar os dados do usuário (telefone e senha atual)
+  db.collection("users").doc(uid).get()
+    .then(doc => {
+      if (doc.exists) {
+        const user = doc.data();
+        const telefone = user.telefone || "Não informado";
+        const senhaAtual = user.senha || "Nenhuma senha configurada";
+        
+        // Exibir telefone do usuário
+        document.getElementById("numero-usuario").value = telefone;
+        
+        // Exibir senha atual
+        document.getElementById("senha-atual-display").textContent = senhaAtual;
+        document.getElementById("senha-atual-display").style.color = "#28a745";
+        document.getElementById("senha-atual-display").style.fontWeight = "bold";
+        
+        console.log("✅ Dados do usuário carregados - Telefone:", telefone, "Senha:", senhaAtual);
+        
+        // Focar no primeiro campo editável
+        document.getElementById("nova-senha").focus();
+      } else {
+        console.error("❌ Usuário não encontrado");
+        document.getElementById("numero-usuario").value = "❌ Não encontrado";
+        document.getElementById("senha-atual-display").textContent = "❌ Usuário não encontrado";
+      }
+    })
+    .catch(error => {
+      console.error("❌ Erro ao carregar dados:", error);
+      document.getElementById("numero-usuario").value = "❌ Erro ao carregar";
+      document.getElementById("senha-atual-display").textContent = "❌ Erro ao carregar";
+    });
+}
+
+function fecharModalEditarSenha() {
+  console.log("🚪 Fechando modal de editar senha");
+  document.getElementById("modal-editar-senha").classList.remove("show");
+  document.getElementById("form-editar-senha").reset();
+  limparAlertaModalSenha();
+}
+
+function mostrarAlertaModalSenha(mensagem, tipo) {
+  const alertDiv = document.getElementById("modal-senha-alert");
+  alertDiv.className = `alert-message show ${tipo}`;
+  alertDiv.innerHTML = `<strong>${mensagem}</strong>`;
+  
+  console.log(`ℹ️ Alerta [${tipo}]: ${mensagem}`);
+  
+  // Auto-fechar alertas de sucesso após 3s
+  if (tipo === "success") {
+    setTimeout(() => {
+      limparAlertaModalSenha();
+    }, 3000);
+  }
+}
+
+function limparAlertaModalSenha() {
+  const alertDiv = document.getElementById("modal-senha-alert");
+  alertDiv.className = "alert-message";
+  alertDiv.innerHTML = "";
+}
+
+function toggleMostrarSenhasForm() {
+  const mostrar = document.getElementById("mostrar-senhas-form").checked;
+  document.getElementById("nova-senha").type = mostrar ? "text" : "password";
+  document.getElementById("confirmar-senha").type = mostrar ? "text" : "password";
+}
+
+function validarSenha() {
+  const novaSenha = document.getElementById("nova-senha").value;
+  const senhaAtualText = document.getElementById("senha-atual-display").textContent;
+  
+  // Verificar se a nova senha é igual à senha atual
+  if (novaSenha && novaSenha === senhaAtualText && senhaAtualText !== "⏳ Carregando..." && senhaAtualText !== "❌ Erro ao carregar") {
+    mostrarAlertaModalSenha("⚠️ Nova senha não pode ser igual à senha atual", "error");
+    document.getElementById("nova-senha").focus();
+  }
+}
+
+function salvarSenha(event) {
+  event.preventDefault();
+  
+  const uid = document.getElementById("form-editar-senha").getAttribute("data-uid");
+  const novaSenha = document.getElementById("nova-senha").value;
+  const confirmarSenha = document.getElementById("confirmar-senha").value;
+  const senhaAtualText = document.getElementById("senha-atual-display").textContent;
+  
+  console.log("💾 Iniciando salvamento de senha...");
+  console.log("   UID:", uid);
+  
+  // ===== VALIDAÇÕES =====
+  if (!novaSenha) {
+    console.warn("⚠️ Nova senha vazia");
+    mostrarAlertaModalSenha("❌ Nova senha não pode ser vazia", "error");
+    document.getElementById("nova-senha").focus();
+    return;
+  }
+  
+  if (novaSenha.length < 6) {
+    console.warn("⚠️ Senha muito curta");
+    mostrarAlertaModalSenha("❌ Senha deve ter no mínimo 6 caracteres", "error");
+    document.getElementById("nova-senha").focus();
+    return;
+  }
+  
+  if (novaSenha.length > 100) {
+    console.warn("⚠️ Senha muito longa");
+    mostrarAlertaModalSenha("❌ Senha não pode ultrapassar 100 caracteres", "error");
+    return;
+  }
+  
+  if (novaSenha !== confirmarSenha) {
+    console.warn("⚠️ Senhas não conferem");
+    mostrarAlertaModalSenha("❌ As senhas não conferem", "error");
+    document.getElementById("confirmar-senha").focus();
+    return;
+  }
+  
+  // Validar se a nova senha é igual à actual
+  if (novaSenha === senhaAtualText && senhaAtualText !== "⏳ Carregando..." && senhaAtualText !== "❌ Erro ao carregar") {
+    console.warn("⚠️ Nova senha igual à senha atual");
+    mostrarAlertaModalSenha("❌ Nova senha não pode ser igual à senha atual", "error");
+    document.getElementById("nova-senha").focus();
+    return;
+  }
+  
+  // ===== DESABILITAR BOTÃO E MOSTRAR LOADING =====
+  const btnSalvar = document.getElementById("btn-salvar-senha");
+  btnSalvar.disabled = true;
+  document.getElementById("spinner-salvar-senha").style.display = "inline-block";
+  document.getElementById("texto-salvar-senha").textContent = "⏳ Salvando...";
+  
+  // ===== VERIFICAR SE DOCUMENTO EXISTE E ATUALIZAR SENHA =====
+  console.log("🔍 Verificando se documento existe...");
+  db.collection("users").doc(uid).get()
+    .then(docSnapshot => {
+      if (!docSnapshot.exists) {
+        throw new Error(`Documento com UID "${uid}" não foi encontrado no Firestore`);
+      }
+      
+      console.log("✅ Documento encontrado. Atualizando senha...");
+      
+      // ===== ATUALIZAR NO FIRESTORE =====
+      return db.collection("users").doc(uid).update({
+        senha: novaSenha,
+        senhaAlteradaEm: new Date(),
+        atualizadoEm: new Date()
+      });
+    })
+    .then(() => {
+      console.log("✅ Senha atualizada com sucesso!");
+      
+      // Mostrar sucesso
+      mostrarAlertaModalSenha("✅ Senha atualizada com sucesso!", "success");
+      atualizarDebug(`✅ Senha do usuário ${uid} atualizada com sucesso`);
+      
+      // Resetar botão
+      btnSalvar.disabled = false;
+      document.getElementById("spinner-salvar-senha").style.display = "none";
+      document.getElementById("texto-salvar-senha").textContent = "💾 Salvar Senha";
+      
+      // Fechar modal após 2 segundos
+      setTimeout(() => {
+        fecharModalEditarSenha();
+        recarregarUsuarios();
+      }, 2000);
+    })
+    .catch(error => {
+      console.error("❌ Erro ao atualizar senha:", error);
+      atualizarDebug(`❌ Erro ao atualizar senha: ${error.message}`);
+      mostrarAlertaModalSenha(`❌ Erro ao atualizar senha: ${error.message}`, "error");
+      
+      // Resetar botão
+      btnSalvar.disabled = false;
+      document.getElementById("spinner-salvar-senha").style.display = "none";
+      document.getElementById("texto-salvar-senha").textContent = "💾 Salvar Senha";
+    });
+}
+
+// =============================
+// MOSTRAR SENHA DO USUÁRIO
+// =============================
+
+function mostrarSenhaUsuario(uid) {
+  console.log("🔑 Carregando senha do UID:", uid);
+  atualizarDebug(`🔑 Exibindo senha do usuário: ${uid}`);
+  
+  db.collection("users").doc(uid).get()
+    .then(doc => {
+      if (doc.exists) {
+        const user = doc.data();
+        const email = user.email || "Não informado";
+        const senha = user.senha || "Nenhuma senha configurada";
+        
+        console.log("✅ Dados carregados");
+        
+        // Popular modal
+        document.getElementById("exibir-email").textContent = email;
+        document.getElementById("exibir-senha").textContent = senha;
+        
+        // Mostrar modal
+        document.getElementById("modal-exibir-senha").classList.add("show");
+        
+        // Auto-fechar após 10 segundos
+        setTimeout(() => {
+          fecharModalExibirSenha();
+        }, 10000);
+      } else {
+        console.error("❌ Usuário não encontrado");
+        alert("❌ Usuário não encontrado");
+      }
+    })
+    .catch(error => {
+      atualizarDebug(`❌ Erro ao carregar senha: ${error.message}`);
+      alert("❌ Erro: " + error.message);
+      console.error("❌ Erro ao carregar senha:", error);
+    });
+}
+
+function fecharModalExibirSenha() {
+  console.log("🚪 Fechando modal de exibir senha");
+  document.getElementById("modal-exibir-senha").classList.remove("show");
+}
+
+// =============================
+// RELATÓRIOS
+// =============================
+
+function carregarRelatorios() {
+  console.log("📊 Carregando relatórios...");
+  atualizarDebug("📊 Carregando relatórios...");
+  
+  db.collection("users").get()
+    .then(snapshot => {
+      const usuarios = [];
+      let totalSaldo = 0;
+      let maiorSaldo = 0;
+      
+      snapshot.forEach(doc => {
+        const user = doc.data();
+        const saldo = user.saldo || 0;
+        
+        usuarios.push({
+          uid: doc.id,
+          ...user,
+          saldo: saldo
+        });
+        
+        totalSaldo += saldo;
+        if (saldo > maiorSaldo) {
+          maiorSaldo = saldo;
+        }
+      });
+      
+      // Atualizar estatísticas
+      const totalUsuarios = usuarios.length;
+      const mediaSaldo = totalUsuarios > 0 ? totalSaldo / totalUsuarios : 0;
+      
+      document.getElementById("report-total-usuarios").textContent = totalUsuarios;
+      document.getElementById("report-saldo-total").textContent = formatador.format(totalSaldo);
+      document.getElementById("report-saldo-medio").textContent = formatador.format(mediaSaldo);
+      document.getElementById("report-maior-saldo").textContent = formatador.format(maiorSaldo);
+      
+      // Preencher tabela
+      const tableBody = document.getElementById("report-table-body");
+      
+      if (usuarios.length === 0) {
+        tableBody.innerHTML = `
+          <tr>
+            <td colspan="6" style="text-align: center; color: #999; padding: 40px;">
+              Nenhum usuário encontrado
+            </td>
+          </tr>
+        `;
+        console.log("⚠️ Nenhum usuário para exibir");
+        return;
+      }
+      
+      let htmlTabela = "";
+      usuarios.forEach(user => {
+        const email = user.email || "-";
+        const nome = user.nome || "-";
+        const saldo = user.saldo || 0;
+        const status = user.status || "ativo";
+        
+        let dataFormatada = "-";
+        if (user.dataCriacao) {
+          try {
+            if (typeof user.dataCriacao.toDate === "function") {
+              dataFormatada = new Date(user.dataCriacao.toDate()).toLocaleString("pt-BR");
+            } else if (user.dataCriacao instanceof Date) {
+              dataFormatada = user.dataCriacao.toLocaleString("pt-BR");
+            }
+          } catch (e) {
+            console.warn("Erro ao formatar data:", e);
+          }
+        }
+        
+        const statusColor = status === "ativo" ? "#28a745" : status === "desativado" ? "#dc3545" : "#ffc107";
+        const statusEmoji = status === "ativo" ? "✅" : status === "desativado" ? "❌" : "⚠️";
+        
+        htmlTabela += `
+          <tr>
+            <td><code style="font-size: 11px;">${user.uid.substring(0, 8)}...</code></td>
+            <td>${email}</td>
+            <td>${nome}</td>
+            <td>${formatador.format(saldo)}</td>
+            <td><span style="color: ${statusColor};">${statusEmoji} ${status}</span></td>
+            <td style="font-size: 12px; color: #666;">${dataFormatada}</td>
+          </tr>
+        `;
+      });
+      
+      tableBody.innerHTML = htmlTabela;
+      console.log("✅ Relatórios carregados com sucesso!");
+      atualizarDebug("✅ Relatórios carregados!");
+    })
+    .catch(error => {
+      console.error("❌ Erro ao carregar relatórios:", error);
+      atualizarDebug(`❌ Erro ao carregar relatórios: ${error.message}`);
+      
+      document.getElementById("report-table-body").innerHTML = `
+        <tr>
+          <td colspan="6" style="text-align: center; color: #dc3545; padding: 40px;">
+            ❌ Erro ao carregar relatórios: ${error.message}
+          </td>
+        </tr>
+      `;
+    });
+}
+
+function imprimirRelatorio() {
+  console.log("🖨️ Desenvolvendo funcionalidade de impressão...");
+  window.print();
+  atualizarDebug("🖨️ Abrindo janela de impressão");
+}
+
+// =============================
+// RECARREGAR TUDO
+// =============================
+
+function recarregarTudo() {
+  atualizarDebug("🔄 Recarregando dados...");
+  carregarDados();
+}
+
+// =============================
+// INICIAR
+// =============================
+
+inicializarFirebase();
+
+// Fechar dropdown de notificações ao clicar fora
+document.addEventListener("click", function(event) {
+  const dropdown = document.getElementById("notificationDropdown");
+  const bell = document.getElementById("notificationBell");
+  if (!dropdown || !bell) return;
+  if (dropdown.classList.contains("active") && !dropdown.contains(event.target) && event.target !== bell) {
+    dropdown.classList.remove("active");
+  }
+});
+
+</script>
+
+<!-- ===== MODAL DE EDIÇÃO DE USUÁRIO ===== -->
+<div id="modal-editar-usuario" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>✏️ Editar Usuário</h2>
+      <button class="modal-close" onclick="fecharModalEditarUsuario()">&times;</button>
+    </div>
+
+    <div id="modal-alert" class="alert-message"></div>
+
+    <form id="form-editar-usuario" onsubmit="salvarUsuario(event)">
+      
+      <!-- UID (somente leitura) -->
+      <div class="form-group">
+        <label>🆔 UID (Identificador)</label>
+        <input type="text" id="editar-uid" readonly style="background: #f5f5f5; cursor: not-allowed;">
+      </div>
+
+      <!-- Email (somente leitura) -->
+      <div class="form-group">
+        <label>📧 Email (Não editável)</label>
+        <input type="email" id="editar-email" readonly style="background: #f5f5f5; cursor: not-allowed;">
+      </div>
+
+      <!-- Nome -->
+      <div class="form-group">
+        <label for="editar-nome">📝 Nome *</label>
+        <input 
+          type="text" 
+          id="editar-nome" 
+          required 
+          placeholder="Digite o nome do usuário"
+          maxlength="100"
+        >
+        <small>Campo obrigatório. Máximo 100 caracteres.</small>
+      </div>
+
+      <!-- Telefone -->
+      <div class="form-group">
+        <label for="editar-telefone">📱 Telefone</label>
+        <input 
+          type="text" 
+          id="editar-telefone" 
+          placeholder="(XX) 9XXXX-XXXX"
+          maxlength="20"
+        >
+        <small>Informe o telefone do usuário com DDD.</small>
+      </div>
+
+      <!-- Referência (ref) -->
+      <div class="form-group">
+        <label for="editar-ref">🔗 Referência</label>
+        <input 
+          type="text" 
+          id="editar-ref" 
+          placeholder="ID de referência ou código"
+          maxlength="100"
+        >
+        <small>Campo para armazenar referência externa ou código de afiliado.</small>
+      </div>
+
+      <!-- Saldo -->
+      <div class="form-group">
+        <label for="editar-saldo">💰 Saldo</label>
+        <input 
+          type="number" 
+          id="editar-saldo" 
+          placeholder="0.00"
+          step="0.01"
+          min="0"
+        >
+        <small>Saldo em reais (R$). Use ponto (.) como separador decimal.</small>
+      </div>
+
+      <!-- Status -->
+      <div class="form-group">
+        <label for="editar-status">📊 Status</label>
+        <select id="editar-status">
+          <option value="ativo">✅ Ativo</option>
+          <option value="desativado">❌ Desativado</option>
+          <option value="pendente">⚠️ Pendente</option>
+        </select>
+        <small>Define se o usuário pode acessar a plataforma.</small>
+      </div>
+
+      <!-- Ações -->
+      <div class="form-actions">
+        <button type="button" class="btn-cancel" onclick="fecharModalEditarUsuario()">
+          ❌ Cancelar
+        </button>
+        <button type="submit" class="btn-save" id="btn-salvar-usuario">
+          <span class="loading-spinner" id="spinner-salvar" style="display: none;"></span>
+          <span id="texto-salvar">💾 Salvar Alterações</span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ===== MODAL DE EDIÇÃO DE SENHA DO USUÁRIO ===== -->
+<div id="modal-editar-senha" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>🔐 Editar Senha do Usuário</h2>
+      <button class="modal-close" onclick="fecharModalEditarSenha()">&times;</button>
+    </div>
+
+    <div id="modal-senha-alert" class="alert-message"></div>
+
+    <form id="form-editar-senha" onsubmit="salvarSenha(event)">
+      
+      <!-- Número do Usuário (somente leitura) -->
+      <div class="form-group">
+        <label>� Telefone do Usuário</label>
+        <input type="text" id="numero-usuario" readonly style="background: #f5f5f5; cursor: not-allowed; font-size: 16px; font-weight: bold; color: #667eea;">
+      </div>
+
+      <!-- UID (somente leitura) -->
+      <div class="form-group">
+        <label>🆔 UID do Usuário</label>
+        <input type="text" id="senha-uid" readonly style="background: #f5f5f5; cursor: not-allowed;">
+      </div>
+
+      <!-- Senha Atual (somente leitura) -->
+      <div class="form-group">
+        <label>🔑 Senha Atual</label>
+        <div style="background: #f5f5f5; padding: 10px 12px; border: 1px solid #ddd; border-radius: 5px; font-family: monospace; word-break: break-all; min-height: 38px; display: flex; align-items: center;" id="senha-atual-display">
+          ••••••••••••••••
+        </div>
+        <small>Senha atual armazenada no sistema.</small>
+      </div>
+
+      <!-- Nova Senha -->
+      <div class="form-group">
+        <label for="nova-senha">🔑 Nova Senha *</label>
+        <input 
+          type="password" 
+          id="nova-senha" 
+          required 
+          placeholder="Digite a nova senha"
+          minlength="6"
+          maxlength="100"
+        >
+        <small>Campo obrigatório. Mínimo 6 caracteres.</small>
+      </div>
+
+      <!-- Confirmar Senha -->
+      <div class="form-group">
+        <label for="confirmar-senha">🔑 Confirmar Senha *</label>
+        <input 
+          type="password" 
+          id="confirmar-senha" 
+          required 
+          placeholder="Confirme a nova senha"
+          minlength="6"
+          maxlength="100"
+        >
+        <small>Deve ser igual à nova senha acima.</small>
+      </div>
+
+      <!-- Checkbox para mostrar/ocultar senhas -->
+      <div class="form-group" style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
+        <input 
+          type="checkbox" 
+          id="mostrar-senhas-form"
+          onchange="toggleMostrarSenhasForm()"
+          style="width: auto; cursor: pointer;"
+        >
+        <label for="mostrar-senhas-form" style="margin-bottom: 0; cursor: pointer;">
+          👁️ Mostrar Senhas
+        </label>
+      </div>
+
+      <!-- Ações -->
+      <div class="form-actions">
+        <button type="button" class="btn-cancel" onclick="fecharModalEditarSenha()">
+          ❌ Cancelar
+        </button>
+        <button type="submit" class="btn-save" id="btn-salvar-senha">
+          <span class="loading-spinner" id="spinner-salvar-senha" style="display: none;"></span>
+          <span id="texto-salvar-senha">💾 Salvar Senha</span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ===== MODAL PARA MOSTRAR SENHA ===== -->
+<div id="modal-exibir-senha" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>🔑 Senha do Usuário</h2>
+      <button class="modal-close" onclick="fecharModalExibirSenha()">&times;</button>
+    </div>
+
+    <div style="background: #f8f9fa; padding: 20px; border-radius: 10px; border: 1px solid #ddd;">
+      <div class="form-group" style="margin-bottom: 0;">
+        <label>📧 Email:</label>
+        <div style="background: white; padding: 12px; border-radius: 5px; border: 1px solid #ddd; font-weight: bold; word-break: break-all;" id="exibir-email">
+          ...
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-top: 20px; margin-bottom: 0;">
+        <label>🔑 Senha:</label>
+        <div style="background: white; padding: 12px; border-radius: 5px; border: 1px solid #ddd; font-weight: bold; word-break: break-all; font-family: monospace;" id="exibir-senha">
+          ••••••••••••••••
+        </div>
+      </div>
+
+      <div style="background: #fff3cd; padding: 12px; border-radius: 5px; margin-top: 20px; border: 1px solid #ffc107; font-size: 13px; color: #856404;">
+        <strong>⚠️ Aviso:</strong> Esta senha será visível por 10 segundos apenas. Não compartilhe com terceiros.
+      </div>
+    </div>
+
+    <div class="form-actions" style="margin-top: 20px;">
+      <button type="button" class="btn-cancel" onclick="fecharModalExibirSenha()" style="width: 100%;">
+        ❌ Fechar
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL DE NOVO USUÁRIO ===== -->
+<div id="modal-novo-usuario" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>➕ Novo Usuário</h2>
+      <button class="modal-close" onclick="fecharModalNovoUsuario()">&times;</button>
+    </div>
+
+    <div id="modal-novo-alert" class="alert-message"></div>
+
+    <form id="form-novo-usuario" onsubmit="criarNovoUsuario(event)">
+      
+      <!-- Email -->
+      <div class="form-group">
+        <label for="novo-email">📧 Email *</label>
+        <input 
+          type="email" 
+          id="novo-email" 
+          required 
+          placeholder="usuario@email.com"
+          maxlength="100"
+        >
+        <small>Campo obrigatório. Email único do novo usuário.</small>
+      </div>
+
+      <!-- Nome -->
+      <div class="form-group">
+        <label for="novo-nome">📝 Nome *</label>
+        <input 
+          type="text" 
+          id="novo-nome" 
+          required 
+          placeholder="Nome completo"
+          maxlength="100"
+        >
+        <small>Campo obrigatório. Máximo 100 caracteres.</small>
+      </div>
+
+      <!-- Telefone -->
+      <div class="form-group">
+        <label for="novo-telefone">📱 Telefone</label>
+        <input 
+          type="text" 
+          id="novo-telefone" 
+          placeholder="(XX) 9XXXX-XXXX"
+          maxlength="20"
+        >
+        <small>Telefone do novo usuário com DDD.</small>
+      </div>
+
+      <!-- Referência (ref) -->
+      <div class="form-group">
+        <label for="novo-ref">🔗 Referência</label>
+        <input 
+          type="text" 
+          id="novo-ref" 
+          placeholder="ID de referência ou código"
+          maxlength="100"
+        >
+        <small>Referência externa ou código de afiliado.</small>
+      </div>
+
+      <!-- Saldo Inicial -->
+      <div class="form-group">
+        <label for="novo-saldo">💰 Saldo Inicial</label>
+        <input 
+          type="number" 
+          id="novo-saldo" 
+          placeholder="0.00"
+          step="0.01"
+          min="0"
+          value="0.00"
+        >
+        <small>Saldo inicial em reais (R$).</small>
+      </div>
+
+      <!-- Status -->
+      <div class="form-group">
+        <label for="novo-status">📊 Status</label>
+        <select id="novo-status">
+          <option value="ativo">✅ Ativo</option>
+          <option value="pendente">⚠️ Pendente</option>
+          <option value="desativado">❌ Desativado</option>
+        </select>
+        <small>Status inicial do novo usuário.</small>
+      </div>
+
+      <!-- Ações -->
+      <div class="form-actions">
+        <button type="button" class="btn-cancel" onclick="fecharModalNovoUsuario()">
+          ❌ Cancelar
+        </button>
+        <button type="submit" class="btn-save" id="btn-criar-usuario">
+          <span class="loading-spinner" id="spinner-criar" style="display: none;"></span>
+          <span id="texto-criar">✏️ Criar Usuário</span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ===== MODAL DE CONFIRMAÇÃO DE EXCLUSÃO ===== -->
+<div id="modal-deletar-confirmacao" class="modal-confirmation">
+  <div class="confirmation-content">
+    <div class="confirmation-icon">⚠️</div>
+    <h2>Excluir Usuário?</h2>
+    <p style="margin-bottom: 10px;">Tem certeza que deseja <strong>excluir permanentemente</strong> este usuário?</p>
+    <p style="font-size: 12px; color: #999; margin-bottom: 20px;">UID: <span id="confirmar-delete-uid">...</span></p>
+    <div class="confirmation-actions">
+      <button class="btn-confirm-cancel" onclick="fecharModalDeleteConfirmacao()">
+        ❌ Cancelar
+      </button>
+      <button class="btn-confirm-delete" id="btn-confirmar-delete" onclick="confirmarDeleteUsuario()">
+        🗑️ Excluir Permanentemente
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ABA RELATÓRIOS ===== -->
+<div id="tab-relatorios" class="tab-content" style="display: none;">
+  
+  <h2 style="margin-bottom: 20px;">📊 Relatórios e Estatísticas</h2>
+  
+  <div class="export-buttons">
+    <button onclick="imprimirRelatorio()" class="btn-export" style="background: #6c757d; color: white;">
+      🖨️ Imprimir
+    </button>
+  </div>
+
+  <h3 style="margin-top: 30px; margin-bottom: 15px;">📈 Estatísticas Gerais</h3>
+  <div class="report-stats">
+    <div class="report-stat-card">
+      <div class="report-stat-label">👥 Total de Usuários</div>
+      <div class="report-stat-value" id="report-total-usuarios">0</div>
+    </div>
+    <div class="report-stat-card">
+      <div class="report-stat-label">💰 Saldo Total</div>
+      <div class="report-stat-value" id="report-saldo-total">R$ 0</div>
+    </div>
+    <div class="report-stat-card">
+      <div class="report-stat-label">📊 Saldo Médio</div>
+      <div class="report-stat-value" id="report-saldo-medio">R$ 0</div>
+    </div>
+    <div class="report-stat-card">
+      <div class="report-stat-label">🏆 Maior Saldo</div>
+      <div class="report-stat-value" id="report-maior-saldo">R$ 0</div>
+    </div>
+  </div>
+
+  <h3 style="margin-top: 30px; margin-bottom: 15px;">📋 Detalhes dos Usuários</h3>
+  <div style="overflow-x: auto;">
+    <table class="report-table">
+      <thead>
+        <tr>
+          <th>UID</th>
+          <th>📧 Email</th>
+          <th>📝 Nome</th>
+          <th>💰 Saldo</th>
+          <th>📊 Status</th>
+          <th>📅 Criado em</th>
+        </tr>
+      </thead>
+      <tbody id="report-table-body">
+        <tr>
+          <td colspan="6" style="text-align: center; color: #999; padding: 40px;">
+            ⏳ Carregando dados...
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+</body>
+</html>

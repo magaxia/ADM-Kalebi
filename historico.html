@@ -1,0 +1,444 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Histórico Financeiro</title>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #667eea, #764ba2); min-height: 100vh; padding: 20px; }
+    .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 15px; box-shadow: 0 10px 40px rgba(0,0,0,.2); overflow: hidden; }
+    header { background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 30px; text-align: center; }
+    header h1 { font-size: 32px; margin-bottom: 10px; }
+    header p { font-size: 14px; opacity: .9; }
+    .content { padding: 30px; }
+    .header-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+    .btn { padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: all .3s; }
+    .btn-primary { background: #667eea; color: white; }
+    .btn-primary:hover { background: #5568d9; }
+    .btn-secondary { background: #e0e0e0; color: #333; }
+    .btn-secondary:hover { background: #c7c7c7; }
+    .info-usuario { background: #f0f0f0; color: #444; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 15px; margin-bottom: 30px; }
+    .stat-card { background: linear-gradient(135deg, #667eea, #764ba2); color: white; border-radius: 10px; padding: 20px; text-align: center; }
+    .stat-label { font-size: 12px; opacity: .85; }
+    .stat-value { font-size: 26px; font-weight: bold; }
+    .table-wrapper { overflow-x: auto; border-radius: 10px; }
+    table { width: 100%; border-collapse: collapse; }
+    thead { background: #f5f5f5; border-bottom: 2px solid #667eea; }
+    th, td { padding: 14px; text-align: left; font-size: 14px; border-bottom: 1px solid #e0e0e0; }
+    tbody tr:hover { background: #f9f9f9; }
+    .badge { display: inline-block; padding: 5px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; }
+    .tipo-deposito { background: #d4edda; color: #155724; }
+    .tipo-saque { background: #fff3cd; color: #856404; }
+    .tipo-compra { background: #d6d8db; color: #383d41; }
+    .tipo-rendimento { background: #cfe2ff; color: #084298; }
+    .value-positivo { color: #28a745; font-weight: bold; }
+    .value-negativo { color: #dc3545; font-weight: bold; }
+    .empty-state, .error, .loading { text-align: center; padding: 35px; margin: 15px 0; border-radius: 8px; }
+    .empty-state { color: #666; background: #f8f9fa; }
+    .error { color: #721c24; background: #f8d7da; border: 1px solid #f5c6cb; }
+    .loading { color: #333; background: #e9ecef; }
+    .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #667eea; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 15px; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    @media (max-width: 768px) { .content { padding: 20px; } .header-actions { flex-direction: column; align-items: stretch; } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>📊 Histórico Financeiro</h1>
+      <p>Dados em tempo real apenas para usuário autenticado</p>
+    </header>
+
+    <div class="content">
+      <div id="info-usuario" class="info-usuario">Carregando autenticação...</div>
+
+      <div class="header-actions">
+        <button id="btn-show-login" class="btn btn-primary">🔐 Login</button>
+        <button id="btn-logout" class="btn btn-secondary" style="display:none;">🚪 Logout</button>
+        <button id="btn-atualizar" class="btn btn-primary">🔄 Atualizar</button>
+      </div>
+
+      <div class="header-actions" style="margin-bottom: 20px;">
+        <input id="input-uid" type="text" placeholder="Buscar por UID" style="flex:1; padding:10px; border:1px solid #ccc; border-radius:8px;">
+        <button id="btn-carregar-uid" class="btn btn-primary">📥 Carregar por UID</button>
+      </div>
+
+      <div class="header-actions" style="margin-bottom: 20px;">
+        <input id="input-email" type="email" placeholder="Buscar por Email" style="flex:1; padding:10px; border:1px solid #ccc; border-radius:8px;">
+        <button id="btn-carregar-email" class="btn btn-primary">📥 Carregar por Email</button>
+      </div>
+
+      <div class="stats">
+        <div class="stat-card"><div class="stat-label">💰 Depósitos</div><div class="stat-value" id="stat-depositos">R$ 0,00</div></div>
+        <div class="stat-card"><div class="stat-label">💸 Saques</div><div class="stat-value" id="stat-saques">R$ 0,00</div></div>
+        <div class="stat-card"><div class="stat-label">🛒 Compras</div><div class="stat-value" id="stat-compras">R$ 0,00</div></div>
+        <div class="stat-card"><div class="stat-label">📈 Rendimentos</div><div class="stat-value" id="stat-rendimentos">R$ 0,00</div></div>
+      </div>
+
+      <div class="table-wrapper">
+        <table id="tabelaHistorico">
+          <thead>
+            <tr><th>Tipo</th><th>Descrição</th><th>Valor</th><th>Data</th><th>Hora</th></tr>
+          </thead>
+          <tbody id="tbody-historico"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js';
+    import { getFirestore, collection, query, where, onSnapshot, getDocs, limit } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js';
+    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js';
+
+    const firebaseConfig = {
+      apiKey: 'AIzaSyAcVPgUHbL4N9U1-H68klmGKWQF-YGleyc',
+      authDomain: 'vastbitloud-2872a.firebaseapp.com',
+      projectId: 'vastbitloud-2872a'
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+
+    const infoUsuarioEl = document.getElementById('info-usuario');
+    const tbodyHistoricoEl = document.getElementById('tbody-historico');
+    const btnShowLogin = document.getElementById('btn-show-login');
+    const btnLogout = document.getElementById('btn-logout');
+    const btnAtualizar = document.getElementById('btn-atualizar');
+    const inputUID = document.getElementById('input-uid');
+    const btnCarregarUID = document.getElementById('btn-carregar-uid');
+    const inputEmail = document.getElementById('input-email');
+    const btnCarregarEmail = document.getElementById('btn-carregar-email');
+
+    const statDepositos = document.getElementById('stat-depositos');
+    const statSaques = document.getElementById('stat-saques');
+    const statCompras = document.getElementById('stat-compras');
+    const statRendimentos = document.getElementById('stat-rendimentos');
+
+    let unsubscribeHistorico = null;
+    let unsubscribeCompras = null;
+    let unsubscribeRendimentos = null;
+    let historicoCompleto = [];
+    let historicoSnapshot = [];
+    let comprasSnapshot = [];
+    let rendimentosSnapshot = [];
+    let currentUser = null;
+    let loadingTimeoutHandle = null;
+
+    function limparHistorico() {
+      if (unsubscribeHistorico) {
+        unsubscribeHistorico();
+        unsubscribeHistorico = null;
+      }
+      if (unsubscribeCompras) {
+        unsubscribeCompras();
+        unsubscribeCompras = null;
+      }
+      if (unsubscribeRendimentos) {
+        unsubscribeRendimentos();
+        unsubscribeRendimentos = null;
+      }
+      historicoSnapshot = [];
+      comprasSnapshot = [];
+      rendimentosSnapshot = [];
+    }
+
+    function exibirLoading() {
+      tbodyHistoricoEl.innerHTML = `<tr><td colspan="5"><div class="loading"><div class="spinner"></div>Carregando histórico...</div></td></tr>`;
+    }
+
+    function exibirVazio() {
+      tbodyHistoricoEl.innerHTML = `<tr><td colspan="5"><div class="empty-state">Nenhum registro encontrado</div></td></tr>`;
+    }
+
+    function exibirErro(mensagem) {
+      tbodyHistoricoEl.innerHTML = `<tr><td colspan="5"><div class="error">Erro: ${mensagem}</div></td></tr>`;
+    }
+
+    function atualizarEstatisticas(dados) {
+      let depositos = 0, saques = 0, compras = 0, rendimentos = 0;
+
+      dados.forEach(item => {
+        const valor = Number(item.valor) || 0;
+        const tipo = (item.tipo || '').toLowerCase();
+
+        if (tipo === 'deposito') depositos += valor;
+        else if (tipo === 'saque') saques += valor;
+        else if (tipo === 'compra') compras += valor;
+        else if (tipo === 'rendimento') rendimentos += valor;
+      });
+
+      const format = value => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+      statDepositos.textContent = format(depositos);
+      statSaques.textContent = format(saques);
+      statCompras.textContent = format(compras);
+      statRendimentos.textContent = format(rendimentos);
+    }
+
+    function renderizarTabela(dados) {
+      if (!Array.isArray(dados) || dados.length === 0) {
+        exibirVazio();
+        return;
+      }
+
+      const numero = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+      const html = dados.map(item => {
+        let dataObj = item.data;
+        if (dataObj && dataObj.seconds) {
+          dataObj = new Date(dataObj.seconds * 1000);
+        } else if (!(dataObj instanceof Date)) {
+          dataObj = new Date(dataObj || Date.now());
+        }
+
+        const dataValida = !Number.isNaN(dataObj.getTime());
+        const dataFormatada = dataValida ? dataObj.toLocaleDateString('pt-BR') : 'Data indisponível';
+        const horaFormatada = dataValida ? dataObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
+
+        const tipo = (item.tipo || 'desconhecido').toLowerCase();
+        const tipoTexto = tipo.charAt(0).toUpperCase() + tipo.slice(1);
+        const badgeClass = `badge tipo-${tipo}`;
+        const valorClass = (tipo === 'deposito' || tipo === 'rendimento') ? 'value-positivo' : ((tipo === 'saque' || tipo === 'compra') ? 'value-negativo' : '');
+
+        return `<tr>
+          <td><span class="${badgeClass}">${tipoTexto}</span></td>
+          <td>${String(item.descricao || 'Sem descrição')}</td>
+          <td><span class="${valorClass}">${numero.format(Number(item.valor) || 0)}</span></td>
+          <td>${dataFormatada}</td>
+          <td>${horaFormatada}</td>
+        </tr>`;
+      }).join('');
+
+      tbodyHistoricoEl.innerHTML = html;
+    }
+
+    function criarQueryHistorico({ uid, email } = {}) {
+      const historicoRef = collection(db, 'historico');
+      if (uid) {
+        return query(historicoRef, where('uid', '==', uid));
+      }
+      if (email) {
+        return query(historicoRef, where('email', '==', email));
+      }
+      throw new Error('UID ou email deve ser fornecido para buscar histórico.');
+    }
+
+    function mapCompraParaHistorico(doc) {
+      const data = doc.data();
+      if (String(data.status || '').toLowerCase() !== 'ativo') return null;
+
+      return {
+        id: doc.id,
+        uid: data.uid,
+        tipo: 'compra',
+        descricao: data.produto || data.descricao || 'Compra',
+        valor: Number(data.valor || 0),
+        status: data.status || 'ativo',
+        data: data.inicio || data.timestamp || data.data || new Date(),
+      };
+    }
+
+    function mapRendimentoParaHistorico(doc) {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        uid: data.uid,
+        tipo: 'rendimento',
+        descricao: 'rendimento diário',
+        valor: Number(data.rendaDiaria || data.valor || 0),
+        status: 'gerado',
+        data: data.timestamp || data.data || new Date(),
+      };
+    }
+
+    function combinarEExibir() {
+      const combined = [...historicoSnapshot, ...comprasSnapshot, ...rendimentosSnapshot];
+      if (combined.length === 0) {
+        historicoCompleto = [];
+        exibirVazio();
+        atualizarEstatisticas([]);
+        return;
+      }
+
+      const sorted = combined.sort((a, b) => {
+        const aTime = a.data?.seconds ? a.data.seconds * 1000 : new Date(a.data || Date.now()).getTime();
+        const bTime = b.data?.seconds ? b.data.seconds * 1000 : new Date(b.data || Date.now()).getTime();
+        return bTime - aTime;
+      });
+
+      historicoCompleto = sorted;
+      renderizarTabela(sorted);
+      atualizarEstatisticas(sorted);
+    }
+
+    async function obterUidPorEmail(email) {
+      try {
+        const historicoRef = collection(db, 'historico');
+        const q = query(historicoRef, where('email', '==', email), limit(1));
+        const snap = await getDocs(q);
+        if (snap.empty) return null;
+        const userData = snap.docs[0].data();
+        return userData.uid || null;
+      } catch (error) {
+        console.error(error);
+        return null;
+      }
+    }
+
+    async function carregarHistoricoComFiltro(filtro) {
+      limparHistorico();
+      exibirLoading();
+
+      if (loadingTimeoutHandle) { clearTimeout(loadingTimeoutHandle); loadingTimeoutHandle = null; }
+      loadingTimeoutHandle = setTimeout(() => {
+        console.error('Timeout: consulta de histórico demorando demais.');
+        exibirErro('Consulta demorando demais. Verifique a conexão.');
+        limparHistorico();
+      }, 10000);
+
+      try {
+        let uid = filtro.uid || null;
+        const email = filtro.email || null;
+
+        if (!uid && email) {
+          uid = await obterUidPorEmail(email);
+          if (!uid) {
+            if (loadingTimeoutHandle) { clearTimeout(loadingTimeoutHandle); loadingTimeoutHandle = null; }
+            exibirErro('UID não encontrado para o email informado.');
+            return;
+          }
+        }
+
+        if (!uid && !email) {
+          throw new Error('UID ou email deve ser informado para carregar histórico.');
+        }
+
+        const historicoQuery = criarQueryHistorico({ uid, email });
+        const comprasQuery = query(collection(db, 'compras'), where('uid', '==', uid), where('status', '==', 'ativo'));
+        const rendimentosQuery = query(collection(db, 'rendimentos'), where('uid', '==', uid));
+
+        unsubscribeHistorico = onSnapshot(historicoQuery, snapshot => {
+          if (loadingTimeoutHandle) { clearTimeout(loadingTimeoutHandle); loadingTimeoutHandle = null; }
+          historicoSnapshot = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          combinarEExibir();
+        }, error => {
+          console.error(error);
+          if (loadingTimeoutHandle) { clearTimeout(loadingTimeoutHandle); loadingTimeoutHandle = null; }
+          exibirErro(error.message || 'Erro ao receber histórico em tempo real.');
+          historicoSnapshot = [];
+          combinarEExibir();
+        });
+
+        unsubscribeCompras = onSnapshot(comprasQuery, snapshot => {
+          comprasSnapshot = snapshot.docs.map(doc => mapCompraParaHistorico(doc)).filter(Boolean);
+          combinarEExibir();
+        }, error => {
+          console.error(error);
+          comprasSnapshot = [];
+          combinarEExibir();
+        });
+
+        unsubscribeRendimentos = onSnapshot(rendimentosQuery, snapshot => {
+          rendimentosSnapshot = snapshot.docs.map(doc => mapRendimentoParaHistorico(doc)).filter(Boolean);
+          combinarEExibir();
+        }, error => {
+          console.error(error);
+          rendimentosSnapshot = [];
+          combinarEExibir();
+        });
+
+      } catch (error) {
+        console.error(error);
+        if (loadingTimeoutHandle) { clearTimeout(loadingTimeoutHandle); loadingTimeoutHandle = null; }
+        exibirErro(error.message || 'Erro ao iniciar consulta.');
+        historicoCompleto = [];
+        atualizarEstatisticas([]);
+      }
+    }
+
+    function carregarHistorico() {
+      if (currentUser) {
+        infoUsuarioEl.textContent = `✅ Autenticado: ${currentUser.email || currentUser.uid}`;
+        carregarHistoricoPorUID(currentUser.uid);
+      } else {
+        infoUsuarioEl.textContent = '⚠️ Não autenticado. Use UID ou Email para carregar histórico.';
+        limparHistorico();
+        exibirVazio();
+      }
+    }
+
+    function carregarHistoricoPorUID(uid) {
+      const valorUID = uid || document.getElementById('input-uid').value.trim();
+      if (!valorUID) {
+        exibirErro('Informe um UID válido para carregar histórico.');
+        return;
+      }
+      infoUsuarioEl.textContent = `🔎 Busca por UID: ${valorUID}`;
+      carregarHistoricoComFiltro({ uid: valorUID });
+    }
+
+    function carregarHistoricoPorEmail(email) {
+      const valorEmail = email || document.getElementById('input-email').value.trim();
+      if (!valorEmail) {
+        exibirErro('Informe um email válido para carregar histórico.');
+        return;
+      }
+      infoUsuarioEl.textContent = `🔎 Busca por Email: ${valorEmail}`;
+      carregarHistoricoComFiltro({ email: valorEmail });
+    }
+
+    function solicitarLogin() {
+      const email = prompt('Email:');
+      const senha = prompt('Senha:');
+
+      if (!email || !senha) {
+        alert('Email e senha são obrigatórios.');
+        return;
+      }
+
+      signInWithEmailAndPassword(auth, email, senha)
+        .then(() => { console.log('Login efetuado.'); })
+        .catch(error => { console.error(error); alert('Erro no login: ' + error.message); });
+    }
+
+    function fazerLogout() {
+      signOut(auth)
+        .then(() => {
+          console.log('Logout efetuado.');
+          infoUsuarioEl.textContent = '⚠️ Não autenticado.';
+          limparHistorico();
+          exibirVazio();
+        })
+        .catch(error => {
+          console.error(error);
+          alert('Erro no logout: ' + error.message);
+        });
+    }
+
+    onAuthStateChanged(auth, user => {
+      currentUser = user;
+      if (user) {
+        btnShowLogin.style.display = 'none';
+        btnLogout.style.display = 'inline-block';
+        carregarHistorico();
+      } else {
+        btnShowLogin.style.display = 'inline-block';
+        btnLogout.style.display = 'none';
+        infoUsuarioEl.textContent = '⚠️ Não autenticado. Faça login.';
+        limparHistorico();
+        exibirVazio();
+      }
+    });
+
+    btnShowLogin.addEventListener('click', solicitarLogin);
+    btnLogout.addEventListener('click', fazerLogout);
+    btnAtualizar.addEventListener('click', carregarHistorico);
+    btnCarregarUID.addEventListener('click', () => carregarHistoricoPorUID());
+    btnCarregarEmail.addEventListener('click', () => carregarHistoricoPorEmail());
+  </script>
+</body>
+</html>

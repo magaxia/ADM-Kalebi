@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Admin Produtos</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+<style>
+body{
+  font-family: Arial, Helvetica, sans-serif;
+  padding: 20px;
+  margin: 0;
+  background: #f5f5f5;
+}
+
+h1{
+  color: #333;
+}
+
+h3{
+  color: #667eea;
+  margin-top: 25px;
+}
+
+.form-group{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 15px;
+  align-items: center;
+}
+
+input{
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  min-width: 200px;
+}
+
+button{
+  padding: 10px 15px;
+  margin: 5px;
+  cursor: pointer;
+  border: none;
+  border-radius: 4px;
+  font-weight: bold;
+  transition: background 0.3s;
+}
+
+.btn-adicionar{
+  background: #4CAF50;
+  color: white;
+  padding: 10px 20px;
+}
+
+.btn-adicionar:hover{
+  background: #45a049;
+}
+
+.btn-desativar{
+  background: #ff9800;
+  color: white;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.btn-desativar:hover{
+  background: #e68900;
+}
+
+.btn-excluir{
+  background: #ff5252;
+  color: white;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.btn-excluir:hover{
+  background: #ff1744;
+}
+
+.btn-editar{
+  background: #1976d2;
+  color: white;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.btn-editar:hover{
+  background: #115293;
+}
+
+.lista{
+  margin-top: 25px;
+}
+
+.card{
+  border: 1px solid #ddd;
+  padding: 15px;
+  margin-bottom: 15px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.card b{
+  color: #333;
+  font-size: 16px;
+}
+
+.card-info{
+  margin: 8px 0;
+  color: #666;
+  font-size: 14px;
+}
+
+.card-actions{
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+}
+
+.vazio{
+  text-align: center;
+  color: #999;
+  padding: 40px;
+  font-size: 16px;
+}
+
+.sucesso{
+  background: #e8f5e9;
+  color: #2e7d32;
+  padding: 12px;
+  border-radius: 4px;
+  margin-bottom: 15px;
+  display: none;
+}
+</style>
+</head>
+<body>
+
+<h1>Painel Admin - Produtos</h1>
+
+<h3>Adicionar Novo Produto</h3>
+
+<div class="form-group">
+  <input id="nome" placeholder="Nome do Produto">
+  <input id="preco" type="number" placeholder="Preço" min="0" step="0.01">
+  <input id="renda" type="number" placeholder="Renda diária" min="0" step="0.01">
+  <input id="ciclo" type="number" placeholder="Ciclo (dias)" min="1" step="1">
+  <input id="imagem" placeholder="URL da imagem">
+  <button class="btn-adicionar" onclick="adicionarProduto()">Adicionar</button>
+</div>
+
+<div class="sucesso" id="mensagemSucesso"></div>
+
+<h3>Produtos Cadastrados</h3>
+
+<div class="lista" id="lista"></div>
+
+<script>
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAcVPgUHbL4N9U1-H68klmGKWQF-YGleyc",
+  authDomain: "vastbitloud-2872a.firebaseapp.com",
+  projectId: "vastbitloud-2872a",
+  storageBucket: "vastbitloud-2872a.firebasestorage.app",
+  messagingSenderId: "952931184412",
+  appId: "1:952931184412:web:ee2a0e38826c30dd0cd4d9",
+  measurementId: "G-KWVQ0CFHW2"
+};
+
+if(!firebase.apps.length) {
+  firebase.initializeApp(firebaseConfig);
+}
+
+const db = firebase.firestore();
+
+const formatador = new Intl.NumberFormat("pt-BR", {
+  style: "currency",
+  currency: "BRL"
+});
+
+async function adicionarProduto(){
+  
+  const nome = document.getElementById("nome").value.trim();
+  const preco = Number(document.getElementById("preco").value);
+  const renda = Number(document.getElementById("renda").value);
+  const ciclo = Number(document.getElementById("ciclo").value);
+  const imagem = document.getElementById("imagem").value.trim();
+  
+  if(!nome || !preco || !renda || !ciclo){
+    alert("Preencha todos os campos obrigatórios");
+    return;
+  }
+  
+  if(preco <= 0 || renda < 0 || ciclo <= 0){
+    alert("Os valores devem ser maiores que zero");
+    return;
+  }
+  
+  try {
+    await db.collection("produtos").add({
+      nome: nome,
+      preco: preco,
+      rendaDiaria: renda,
+      ciclo: ciclo,
+      imagem: imagem || "https://via.placeholder.com/250x150?text=Sem+imagem",
+      ativo: true,
+      criadoEm: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    
+    // Limpa os campos
+    document.getElementById("nome").value = "";
+    document.getElementById("preco").value = "";
+    document.getElementById("renda").value = "";
+    document.getElementById("ciclo").value = "";
+    document.getElementById("imagem").value = "";
+    
+    // Mostra mensagem de sucesso
+    const msg = document.getElementById("mensagemSucesso");
+    msg.innerText = "✓ Produto adicionado com sucesso!";
+    msg.style.display = "block";
+    
+    setTimeout(() => {
+      msg.style.display = "none";
+    }, 3000);
+    
+  }
+  catch(e) {
+    alert("Erro ao adicionar produto: " + e.message);
+    console.error("Erro:", e);
+  }
+function carregarLista(){
+  
+  const div = document.getElementById("lista");
+  
+  db.collection("produtos")
+    .orderBy("criadoEm", "desc")
+    .onSnapshot((snapshot) => {
+      div.innerHTML = "";
+      
+      if(snapshot.empty) {
+        div.innerHTML = "<div class='vazio'>Nenhum produto cadastrado</div>";
+        return;
+      }
+      
+      snapshot.forEach((doc) => {
+        const p = doc.data();
+        const linha = document.createElement("div");
+        linha.className = "card";
+        
+        const status = p.ativo ? "✓ Ativo" : "✗ Inativo";
+        const statusCor = p.ativo ? "#4CAF50" : "#999";
+        
+        linha.innerHTML = `
+          <div>
+            <b>${p.nome}</b>
+            <span style="color: ${statusCor}; margin-left: 10px;">${status}</span>
+          </div>
+          <div class="card-info">
+            <strong>Preço:</strong> ${formatador.format(p.preco)}
+          </div>
+          <div class="card-info">
+            <strong>Renda diária:</strong> ${formatador.format(p.rendaDiaria)}
+          </div>
+          <div class="card-info">
+            <strong>Ciclo:</strong> ${p.ciclo} dias
+          </div>
+          <div class="card-info">
+            <strong>Imagem:</strong> <a href="${p.imagem}" target="_blank" style="color: #667eea;">${p.imagem.substring(0, 50)}...</a>
+          </div>
+          <div class="card-actions">
+            <button class="btn-editar" onclick="editar('${doc.id}')">Editar</button>
+            ${p.ativo ? `<button class="btn-desativar" onclick="desativar('${doc.id}')">Desativar</button>` : `<button class="btn-desativar" onclick="ativar('${doc.id}')">Ativar</button>`}
+            <button class="btn-excluir" onclick="excluir('${doc.id}')">Excluir</button>
+          </div>
+        `;
+        
+        div.appendChild(linha);
+      });
+    }, (error) => {
+      console.error("Erro ao carregar produtos:", error);
+      div.innerHTML = "<div class='vazio'>Erro ao carregar produtos</div>";
+    });
+}
+
+async function desativar(id){
+  if(confirm("Tem certeza que deseja desativar este produto?")) {
+    try {
+      await db.collection("produtos").doc(id).update({ ativo: false });
+    }
+    catch(e) {
+      alert("Erro: " + e.message);
+    }
+  }
+}
+
+async function editar(id){
+  try {
+    const docRef = db.collection("produtos").doc(id);
+    const docSnap = await docRef.get();
+    if(!docSnap.exists){
+      alert("Produto não encontrado.");
+      return;
+    }
+
+    const produto = docSnap.data();
+    const novoNome = prompt("Nome do Produto:", produto.nome);
+    if(novoNome === null) return;
+
+    const novoPreco = prompt("Preço:", produto.preco);
+    if(novoPreco === null) return;
+
+    const novaRenda = prompt("Renda diária:", produto.rendaDiaria);
+    if(novaRenda === null) return;
+
+    const novoCiclo = prompt("Ciclo (dias):", produto.ciclo);
+    if(novoCiclo === null) return;
+
+    const novaImagem = prompt("URL da imagem:", produto.imagem || "");
+    if(novaImagem === null) return;
+
+    if(!novoNome.trim() || Number(novoPreco) <= 0 || Number(novaRenda) < 0 || Number(novoCiclo) <= 0){
+      alert("Dados inválidos. Nome obrigatório e valores numéricos válidos são necessários.");
+      return;
+    }
+
+    await docRef.update({
+      nome: novoNome.trim(),
+      preco: Number(novoPreco),
+      rendaDiaria: Number(novaRenda),
+      ciclo: Number(novoCiclo),
+      imagem: novaImagem.trim() || "https://via.placeholder.com/250x150?text=Sem+imagem"
+    });
+
+    const msg = document.getElementById("mensagemSucesso");
+    msg.innerText = "✓ Produto atualizado com sucesso!";
+    msg.style.display = "block";
+    setTimeout(() => { msg.style.display = "none"; }, 3000);
+  }
+  catch(e) {
+    alert("Erro ao editar produto: " + e.message);
+    console.error(e);
+  }
+}
+
+async function ativar(id){
+  try {
+    await db.collection("produtos").doc(id).update({ ativo: true });
+  }
+  catch(e) {
+    alert("Erro: " + e.message);
+  }
+}
+
+async function excluir(id){
+  if(confirm("Tem certeza que deseja EXCLUIR este produto? Esta ação não pode ser desfeita!")) {
+    try {
+      await db.collection("produtos").doc(id).delete();
+    }
+    catch(e) {
+      alert("Erro: " + e.message);
+    }
+  }
+}
+
+// Carrega a lista ao iniciar
+carregarLista();
+
+</script>
+
+</body>
+</html>

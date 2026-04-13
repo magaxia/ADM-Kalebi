@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Histórico de Notificações</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<style>
+body { font-family: Arial, sans-serif; background: #f5f5f5; color: #2b2b2b; }
+.container { max-width: 1000px; margin: 20px auto; background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+h1 { margin-bottom: 15px; }
+.controls { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
+.select, .btn { padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; }
+.btn { background: #007bff; color: #fff; cursor: pointer; border: none; }
+.btn:hover { background: #0056b3; }
+.history-list { display: grid; gap: 10px; }
+.history-item { background: #fff; border-radius: 8px; padding: 12px; border-left: 4px solid #888; box-shadow: 0 2px 6px rgba(0,0,0,0.08); }
+.history-item .header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.history-item .title { font-weight: bold; color: #2b2b2b; }
+.history-item .date { color: #666; font-size: 12px; }
+.pagination { margin-top: 15px; display: flex; gap: 5px; align-items: center; }
+.pagination button { padding: 6px 10px; border: 1px solid #ccc; background: #fff; border-radius: 6px; cursor: pointer; }
+.pagination button.active { background: #007bff; color: #fff; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Histórico de Notificações</h1>
+  <div class="controls">
+    <select id="filtroTipo" class="select" onchange="aplicarFiltroTipo()">
+      <option value="">Todos os tipos</option>
+      <option value="deposito_pendente">deposito_pendente</option>
+      <option value="novo_usuario">novo_usuario</option>
+      <option value="usuario_bloqueado">usuario_bloqueado</option>
+      <option value="fraude_detectada">fraude_detectada</option>
+      <option value="usuario_suspenso">usuario_suspenso</option>
+      <option value="solicitacao_saque">solicitacao_saque</option>
+    </select>
+    <button class="btn" onclick="voltarDashboard()">Voltar ao Dashboard</button>
+  </div>
+  <div id="historicoLista" class="history-list"></div>
+  <div class="pagination" id="pagination"></div>
+</div>
+<script>
+const firebaseConfig = {
+  apiKey:"AIzaSyAcVPgUHbL4N9U1-H68klmGKWQF-YGleyc",
+  authDomain:"vastbitloud-2872a.firebaseapp.com",
+  projectId:"vastbitloud-2872a"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+let historicoNotificacoes = [];
+let filtroTipo = "";
+let paginaAtual = 1;
+const itensPorPagina = 12;
+
+function voltarDashboard() {
+  window.location.href = 'index.html';
+}
+
+function aplicarFiltroTipo() {
+  filtroTipo = document.getElementById('filtroTipo').value;
+  paginaAtual = 1;
+  renderizarHistorico();
+}
+
+function renderizarHistorico() {
+  const container = document.getElementById('historicoLista');
+  const tipoFiltrado = filtroTipo;
+  let itensFiltrados = historicoNotificacoes;
+
+  if (tipoFiltrado) {
+    itensFiltrados = itensFiltrados.filter(i => i.tipo === tipoFiltrado);
+  }
+
+  itensFiltrados = itensFiltrados.sort((a,b) => (b.data && b.data.toDate ? b.data.toDate().getTime() : 0) - (a.data && a.data.toDate ? a.data.toDate().getTime() : 0));
+
+  const totalPaginas = Math.max(1, Math.ceil(itensFiltrados.length / itensPorPagina));
+  if (paginaAtual > totalPaginas) paginaAtual = totalPaginas;
+
+  const inicio = (paginaAtual - 1) * itensPorPagina;
+  const fim = inicio + itensPorPagina;
+  const paginaItens = itensFiltrados.slice(inicio, fim);
+
+  if (paginaItens.length === 0) {
+    container.innerHTML = '<div class="history-item">Nenhuma notificação encontrada.</div>';
+  } else {
+    container.innerHTML = paginaItens.map(item => {
+      const hora = item.data && item.data.toDate ? item.data.toDate().toLocaleString('pt-BR') : '';
+      return `
+        <div class="history-item" style="border-left: 4px solid ${getBorderColor(item.tipo)};">
+          <div class="header">
+            <div class="title">${item.titulo || item.tipo}</div>
+            <div class="date">${hora} • ${item.lida ? 'Lida' : 'Não lida'}</div>
+          </div>
+          <div>${item.mensagem}</div>
+          <div style="font-size:12px; color:#666; margin-top:5px;">ID: ${item.uidUsuario || '---'}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  renderizarPaginacao(totalPaginas);
+}
+
+function renderizarPaginacao(totalPaginas) {
+  const pagContainer = document.getElementById('pagination');
+  let html = '';
+  for (let i = 1; i <= totalPaginas; i++) {
+    html += `<button class="${i === paginaAtual ? 'active' : ''}" onclick="irParaPagina(${i})">${i}</button>`;
+  }
+  pagContainer.innerHTML = html;
+}
+
+function irParaPagina(numero) {
+  paginaAtual = numero;
+  renderizarHistorico();
+}
+
+function getBorderColor(tipo) {
+  const cores = {
+    deposito_pendente: '#f39c12',
+    novo_usuario: '#3498db',
+    usuario_bloqueado: '#e74c3c',
+    fraude_detectada: '#c0392b',
+    usuario_suspenso: '#9b59b6',
+    solicitacao_saque: '#27ae60'
+  };
+  return cores[tipo] || '#888';
+}
+
+function inicializarHistoricoNotificacoes() {
+  db.collection('notificacoes').orderBy('data', 'desc').onSnapshot(snapshot => {
+    historicoNotificacoes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    renderizarHistorico();
+  }, error => {
+    console.error('Erro no histórico de notificações:', error);
+  });
+}
+
+inicializarHistoricoNotificacoes();
+</script>
+</body>
+</html>

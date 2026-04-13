@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Métricas em Tempo Real</title>
+    
+    <!-- Firebase 9 COMPAT (compatível com API antiga) -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 30px;
+            border-radius: 15px;
+            margin-bottom: 40px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            text-align: center;
+        }
+
+        header h1 {
+            font-size: 2.5em;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        header p {
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .status-box {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+        }
+
+        .status-item {
+            padding: 15px;
+            border-radius: 8px;
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+        }
+
+        .status-label {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 5px;
+            font-weight: 600;
+        }
+
+        .status-value {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+            margin-bottom: 40px;
+        }
+
+        .metric-card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 50px rgba(0, 0, 0, 0.2);
+        }
+
+        .metric-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 5px;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+        }
+
+        .metric-icon {
+            font-size: 2.5em;
+            margin-bottom: 15px;
+            display: inline-block;
+        }
+
+        .metric-label {
+            color: #666;
+            font-size: 0.95em;
+            margin-bottom: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .metric-value {
+            font-size: 2.5em;
+            font-weight: 900;
+            color: #667eea;
+            margin-bottom: 15px;
+            word-wrap: break-word;
+            word-break: break-all;
+        }
+
+        .metric-change {
+            display: inline-block;
+            background: #e8f5e9;
+            color: #2e7d32;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+
+        .metric-change.down {
+            background: #ffebee;
+            color: #c62828;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(102, 126, 234, 0.3);
+            border-radius: 50%;
+            border-top-color: #667eea;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .skeleton {
+            background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+            background-size: 200% 100%;
+            animation: loading 1.5s infinite;
+            border-radius: 8px;
+            height: 40px;
+        }
+
+        @keyframes loading {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        .error {
+            background: #ffebee;
+            border: 1px solid #ef5350;
+            color: #c62828;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+
+        .success {
+            background: #e8f5e9;
+            border: 1px solid #4caf50;
+            color: #2e7d32;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+
+        .info-box {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .info-box h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+
+        .console-log {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
+            padding: 15px;
+            border-radius: 8px;
+            max-height: 300px;
+            overflow-y: auto;
+            line-height: 1.5;
+        }
+
+        .console-log .success-msg {
+            color: #4ec9b0;
+        }
+
+        .console-log .error-msg {
+            color: #f48771;
+        }
+
+        .console-log .info-msg {
+            color: #9cdcfe;
+        }
+
+        .console-log .warn-msg {
+            color: #ce9178;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 1em;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+
+        .timestamp {
+            font-size: 0.85em;
+            color: #999;
+            margin-top: 15px;
+        }
+
+        @media (max-width: 768px) {
+            header h1 {
+                font-size: 1.8em;
+            }
+
+            .metrics-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .metric-card {
+                padding: 20px;
+            }
+
+            .metric-value {
+                font-size: 2em;
+            }
+
+            .metric-icon {
+                font-size: 2em;
+            }
+        }
+
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    
+    <header>
+        <h1>📊 Dashboard de Métricas</h1>
+        <p>Acompanhamento em tempo real dos dados financeiros</p>
+    </header>
+
+    <!-- Status do Firebase -->
+    <div class="status-box">
+        <div class="status-item">
+            <div class="status-label">🔌 Conexão Firebase</div>
+            <div class="status-value" id="status-firebase">⏳ Conectando...</div>
+        </div>
+        <div class="status-item">
+            <div class="status-label">📡 Status Firestore</div>
+            <div class="status-value" id="status-firestore">⏳ Testando...</div>
+        </div>
+        <div class="status-item">
+            <div class="status-label">⏱️ Última Atualização</div>
+            <div class="status-value" id="ultima-atualizacao">--:--:--</div>
+        </div>
+        <div class="status-item">
+            <div class="status-label">🔄 Auto-atualização</div>
+            <div class="status-value" id="auto-atualizacao">✅ Ativada</div>
+        </div>
+    </div>
+
+    <!-- Grid de Métricas -->
+    <div class="metrics-grid">
+        
+        <!-- Card 1: Total de Usuários -->
+        <div class="metric-card fade-in">
+            <div class="metric-icon">👥</div>
+            <div class="metric-label">Total de Usuários</div>
+            <div class="metric-value" id="total-usuarios">
+                <div class="skeleton"></div>
+            </div>
+            <div class="timestamp" id="timestamp-usuarios"></div>
+        </div>
+
+        <!-- Card 2: Usuários Ativos -->
+        <div class="metric-card fade-in">
+            <div class="metric-icon">🟢</div>
+            <div class="metric-label">Usuários Ativos</div>
+            <div class="metric-value" id="usuarios-ativos">
+                <div class="skeleton"></div>
+            </div>
+            <div class="timestamp" id="timestamp-ativos"></div>
+        </div>
+
+        <!-- Card 3: Saldo Total -->
+        <div class="metric-card fade-in">
+            <div class="metric-icon">💰</div>
+            <div class="metric-label">Saldo Total</div>
+            <div class="metric-value" id="saldo-total">
+                <div class="skeleton"></div>
+            </div>
+            <div class="timestamp" id="timestamp-saldo"></div>
+        </div>
+
+        <!-- Card 4: Compras Ativas -->
+        <div class="metric-card fade-in">
+            <div class="metric-icon">🛒</div>
+            <div class="metric-label">Compras Ativas</div>
+            <div class="metric-value" id="compras-ativas">
+                <div class="skeleton"></div>
+            </div>
+            <div class="timestamp" id="timestamp-compras"></div>
+        </div>
+
+        <!-- Card 5: Rendimentos Pagos -->
+        <div class="metric-card fade-in">
+            <div class="metric-icon">💵</div>
+            <div class="metric-label">Rendimentos Pagos</div>
+            <div class="metric-value" id="rendimentos-pagos">
+                <div class="skeleton"></div>
+            </div>
+            <div class="timestamp" id="timestamp-rendimentos"></div>
+        </div>
+
+        <!-- Card 6: Total de Depósitos -->
+        <div class="metric-card fade-in">
+            <div class="metric-icon">📥</div>
+            <div class="metric-label">Total de Depósitos</div>
+            <div class="metric-value" id="total-depositos">
+                <div class="skeleton"></div>
+            </div>
+            <div class="timestamp" id="timestamp-depositos"></div>
+        </div>
+
+        <!-- Card 7: Total de Saques -->
+        <div class="metric-card fade-in">
+            <div class="metric-icon">📤</div>
+            <div class="metric-label">Total de Saques</div>
+            <div class="metric-value" id="total-saques">
+                <div class="skeleton"></div>
+            </div>
+            <div class="timestamp" id="timestamp-saques"></div>
+        </div>
+
+    </div>
+
+    <!-- Informações e Controles -->
+    <div class="info-box">
+        <h2>⚙️ Controles e Informações</h2>
+        
+        <div class="button-group">
+            <button onclick="atualizarDadosManual()">🔄 Atualizar Manualmente</button>
+            <button onclick="recarregarPagina()" style="background: #6c757d;">↻ Recarregar Página</button>
+            <button onclick="exportarDados()" style="background: #28a745;">📥 Exportar Dados</button>
+            <button onclick="limparConsole()" style="background: #dc3545;">🗑️ Limpar Console</button>
+        </div>
+
+        <h2 style="margin-top: 30px;">📋 Console de Eventos</h2>
+        <div class="console-log" id="console-log">
+            <div class="info-msg">ℹ️ Console inicializado. Aguardando eventos...</div>
+        </div>
+    </div>
+
+    <!-- Mensagens de Status -->
+    <div id="mensagem-status"></div>
+
+</div>
+
+<script>
+
+    // ===== CONFIGURAÇÃO FIREBASE =====
+    const firebaseConfig = {
+        apiKey: "AIzaSyAcVPgUHbL4N9U1-H68klmGKWQF-YGleyc",
+        authDomain: "vastbitloud-2872a.firebaseapp.com",
+        projectId: "vastbitloud-2872a",
+        storageBucket: "vastbitloud-2872a.appspot.com",
+        messagingSenderId: "123456789",
+        appId: "1:123456789:web:abcdef123456"
+    };
+
+    let db = null;
+    let unsubscribers = [];
+
+    // Formatador de moeda
+    const formatadorMoeda = new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    });
+
+    // ===== CONSOLE LOG CUSTOMIZADO =====
+    function adicionarConsoleLog(mensagem, tipo = 'info') {
+        const consoleDiv = document.getElementById('console-log');
+        const timestamp = new Date().toLocaleTimeString('pt-BR');
+        
+        let classeMsg = 'info-msg';
+        let icone = 'ℹ️';
+        
+        if (tipo === 'success') {
+            classeMsg = 'success-msg';
+            icone = '✅';
+        } else if (tipo === 'error') {
+            classeMsg = 'error-msg';
+            icone = '❌';
+        } else if (tipo === 'warn') {
+            classeMsg = 'warn-msg';
+            icone = '⚠️';
+        }
+        
+        const logItem = document.createElement('div');
+        logItem.className = classeMsg;
+        logItem.textContent = `[${timestamp}] ${icone} ${mensagem}`;
+        
+        consoleDiv.appendChild(logItem);
+        consoleDiv.scrollTop = consoleDiv.scrollHeight;
+        
+        console.log(`[${timestamp}] ${mensagem}`);
+    }
+
+    function limparConsole() {
+        const consoleDiv = document.getElementById('console-log');
+        consoleDiv.innerHTML = '<div class="info-msg">ℹ️ Console limpo</div>';
+        adicionarConsoleLog('Console limpo pelo usuário', 'info');
+    }
+
+    // ===== INICIALIZAR FIREBASE (API COMPAT) =====
+    function inicializarFirebase() {
+        try {
+            // Inicializar Firebase
+            firebase.initializeApp(firebaseConfig);
+            db = firebase.firestore();
+            
+            document.getElementById('status-firebase').innerHTML = '✅ Conectado';
+            adicionarConsoleLog('Firebase inicializado com sucesso', 'success');
+            
+            // Testar conexão com Firestore
+            testarConexaoFirestore();
+            
+        } catch (error) {
+            document.getElementById('status-firebase').innerHTML = '❌ Erro';
+            adicionarConsoleLog(`Erro ao inicializar Firebase: ${error.message}`, 'error');
+            console.error('Erro Firebase:', error);
+        }
+    }
+
+    // ===== TESTAR CONEXÃO FIRESTORE =====
+    function testarConexaoFirestore() {
+        try {
+            db.collection('users')
+                .limit(1)
+                .get()
+                .then(snapshot => {
+                    document.getElementById('status-firestore').innerHTML = '✅ Operacional';
+                    adicionarConsoleLog(`Firestore conectado - ${snapshot.size} documentos de teste lidos`, 'success');
+                    
+                    // Iniciar carregamento de dados
+                    carregarMetricas();
+                })
+                .catch(error => {
+                    document.getElementById('status-firestore').innerHTML = `❌ ${error.code || 'Erro'}`;
+                    adicionarConsoleLog(`Erro ao testar Firestore: ${error.message}`, 'error');
+                    console.error('Erro ao conectar Firestore:', error);
+                });
+        } catch (error) {
+            document.getElementById('status-firestore').innerHTML = '❌ Erro';
+            adicionarConsoleLog(`Erro ao testar conexão: ${error.message}`, 'error');
+            console.error('Erro:', error);
+        }
+    }
+
+    // ===== ATUALIZAR TIMESTAMP =====
+    function atualizarTimestamp(elementId) {
+        const timestamp = new Date().toLocaleTimeString('pt-BR');
+        document.getElementById(elementId).textContent = `Atualizado: ${timestamp}`;
+    }
+
+    function atualizarTimestampGeral() {
+        document.getElementById('ultima-atualizacao').textContent = new Date().toLocaleTimeString('pt-BR');
+    }
+
+    // ===== CARREGAR MÉTRICAS COM ONSNAPSHOT =====
+    function carregarMetricas() {
+        adicionarConsoleLog('Iniciando carregamento de métricas...', 'info');
+
+        // 1. Total de Usuários
+        carregarTotalUsuarios();
+
+        // 2. Usuários Ativos
+        carregarUsuariosAtivos();
+
+        // 3. Saldo Total
+        carregarSaldoTotal();
+
+        // 4. Compras Ativas
+        carregarComprasAtivas();
+
+        // 5. Rendimentos Pagos
+        carregarRendimentosPagos();
+
+        // 6. Total de Depósitos
+        carregarTotalDepositos();
+
+        // 7. Total de Saques
+        carregarTotalSaques();
+    }
+
+    // ===== 1. TOTAL DE USUÁRIOS =====
+    function carregarTotalUsuarios() {
+        try {
+            const unsubscribe = db.collection('users').onSnapshot(
+                (snapshot) => {
+                    const total = snapshot.size;
+                    document.getElementById('total-usuarios').textContent = total;
+                    atualizarTimestamp('timestamp-usuarios');
+                    atualizarTimestampGeral();
+                    
+                    adicionarConsoleLog(`✅ Total de usuários: ${total}`, 'success');
+                    console.log('Total de usuários:', total);
+                },
+                (error) => {
+                    document.getElementById('total-usuarios').textContent = '❌ Erro';
+                    adicionarConsoleLog(`❌ Erro ao carregar usuários: ${error.message}`, 'error');
+                    console.error('Erro ao carregar usuários:', error);
+                }
+            );
+            unsubscribers.push(unsubscribe);
+        } catch (error) {
+            document.getElementById('total-usuarios').textContent = '❌ Erro';
+            adicionarConsoleLog(`❌ Erro ao configurar listener: ${error.message}`, 'error');
+            console.error('Erro:', error);
+        }
+    }
+
+    // ===== 2. USUÁRIOS ATIVOS =====
+    function carregarUsuariosAtivos() {
+        try {
+            const unsubscribe = db.collection('users')
+                .where('status', '==', 'ativo')
+                .onSnapshot(
+                    (snapshot) => {
+                        const total = snapshot.size;
+                        document.getElementById('usuarios-ativos').textContent = total;
+                        atualizarTimestamp('timestamp-ativos');
+                        atualizarTimestampGeral();
+                        
+                        adicionarConsoleLog(`✅ Usuários ativos: ${total}`, 'success');
+                        console.log('Usuários ativos:', total);
+                    },
+                    (error) => {
+                        // Se erro de índice, tenta filtrar no cliente
+                        if (error.code === 'failed-precondition') {
+                            adicionarConsoleLog('⚠️ Índice não criado - filtrando no cliente', 'warn');
+                            carregarUsuariosAtivosCliente();
+                        } else {
+                            document.getElementById('usuarios-ativos').textContent = '❌ Erro';
+                            adicionarConsoleLog(`❌ Erro: ${error.message}`, 'error');
+                        }
+                    }
+                );
+            unsubscribers.push(unsubscribe);
+        } catch (error) {
+            adicionarConsoleLog(`❌ Erro ao configurar listener: ${error.message}`, 'error');
+        }
+    }
+
+    function carregarUsuariosAtivosCliente() {
+        try {
+            const unsubscribe = db.collection('users').onSnapshot(
+                (snapshot) => {
+                    let total = 0;
+                    snapshot.forEach(doc => {
+                        if (doc.data().status === 'ativo') {
+                            total++;
+                        }
+                    });
+                    document.getElementById('usuarios-ativos').textContent = total;
+                    atualizarTimestamp('timestamp-ativos');
+                    atualizarTimestampGeral();
+                    
+                    adicionarConsoleLog(`✅ Usuários ativos (filtro cliente): ${total}`, 'success');
+                },
+                (error) => {
+                    document.getElementById('usuarios-ativos').textContent = '❌ Erro';
+                    adicionarConsoleLog(`❌ Erro: ${error.message}`, 'error');
+                }
+            );
+            unsubscribers.push(unsubscribe);
+        } catch (error) {
+            adicionarConsoleLog(`❌ Erro: ${error.message}`, 'error');
+        }
+    }
+
+    // ===== 3. SALDO TOTAL =====
+    function carregarSaldoTotal() {
+        try {
+            const unsubscribe = db.collection('users').onSnapshot(
+                (snapshot) => {
+                    let total = 0;
+                    snapshot.forEach(doc => {
+                        const saldo = doc.data().saldo || 0;
+                        total += parseFloat(saldo) || 0;
+                    });
+                    
+                    document.getElementById('saldo-total').textContent = formatadorMoeda.format(total);
+                    atualizarTimestamp('timestamp-saldo');
+                    atualizarTimestampGeral();
+                    
+                    adicionarConsoleLog(`✅ Saldo total: ${formatadorMoeda.format(total)}`, 'success');
+                },
+                (error) => {
+                    document.getElementById('saldo-total').textContent = '❌ Erro';
+                    adicionarConsoleLog(`❌ Erro: ${error.message}`, 'error');
+                }
+            );
+            unsubscribers.push(unsubscribe);
+        } catch (error) {
+            document.getElementById('saldo-total').textContent = '❌ Erro';
+            adicionarConsoleLog(`❌ Erro: ${error.message}`, 'error');
+        }
+    }
+
+    // ===== 4. COMPRAS ATIVAS =====
+    function carregarComprasAtivas() {
+        try {
+            const unsubscribe = db.collection('compras')
+                .where('status', '==', 'ativo')
+                .onSnapshot(
+                    (snapshot) => {
+                        const total = snapshot.size;
+                        document.getElementById('compras-ativas').textContent = total;
+                        atualizarTimestamp('timestamp-compras');
+                        atualizarTimestampGeral();
+                        
+                        adicionarConsoleLog(`✅ Compras ativas: ${total}`, 'success');
+                    },
+                    (error) => {
+                        if (error.code === 'failed-precondition') {
+                            adicionarConsoleLog('⚠️ Índice não criado - filtrando no cliente', 'warn');
+                            carregarComprasAtivasCliente();
+                        } else {
+                            document.getElementById('compras-ativas').textContent = '❌ Erro';
+                            adicionarConsoleLog(`❌ Erro: ${error.message}`, 'error');
+                        }
+                    }
+                );
+            unsubscribers.push(unsubscribe);
+        } catch (error) {
+            document.getElementById('compras-ativas').textContent = '❌ Erro';
+            adicionarConsoleLog(`❌ Erro: ${error.message}`, 'error');
+        }
+    }
+
+    function carregarComprasAtivasCliente() {
+        try {
+            const unsubscribe = db.collection('compras').onSnapshot(
+                (snapshot) => {
+                    let total = 0;
+                    snapshot.forEach(doc => {
+                        if (doc.data().status === 'ativo') {
+                            total++;
+                        }
+                    });
+                    document.getElementById('compras-ativas').textContent = total;
+                    atualizarTimestamp('timestamp-compras');
+                    atualizarTimestampGeral();
+                    
+                    adicionarConsoleLog(`✅ Compras ativas (filtro cliente): ${total}`, 'success');
+                },
+                (error) => {
+                    document.getElementById('compras-ativas').textContent = '❌ Erro';
+                    adicionarConsoleLog(`❌ Erro: ${error.message}`, 'error');
+                }
+            );
+            unsubscribers.push(unsubscribe);
+        } catch (error) {
+            adicionarConsoleLog(`❌ Erro: ${error.message}`, 'error');
+        }
+    }
+
+    // ===== 5. RENDIMENTOS PAGOS =====
+    function carregarRendimentosPagos() {
+        try {
+            const unsubscribe = db.collection('ganhos').onSnapshot(
+                (snapshot) => {
+                    let total = 0;
+                    snapshot.forEach(doc => {
+                        const valor = doc.data().valor || 0;
+                        total += parseFloat(valor) || 0;
+                    });
+                    
+                    document.getElementById('rendimentos-pagos').textContent = formatadorMoeda.format(total);
+                    atualizarTimestamp('timestamp-rendimentos');
+                    atualizarTimestampGeral();
+                    
+                    adicionarConsoleLog(`✅ Rendimentos pagos (da coleção ganhos): ${formatadorMoeda.format(total)}`, 'success');
+                },
+                (error) => {
+                    document.getElementById('rendimentos-pagos').textContent = '❌ Erro';
+                    adicionarConsoleLog(`❌ Erro ao carregar ganhos: ${error.message}`, 'error');
+                }
+            );
+            unsubscribers.push(unsubscribe);
+        } catch (error) {
+            document.getElementById('rendimentos-pagos').textContent = '❌ Erro';
+            adicionarConsoleLog(`❌ Erro: ${error.message}`, 'error');
+        }
+    }
+
+    // ===== 6. TOTAL DE DEPÓSITOS =====
+    function carregarTotalDepositos() {
+        try {
+            const unsubscribe = db.collection('depositos').onSnapshot(
+                (snapshot) => {
+                    let total = 0;
+                    snapshot.forEach(doc => {
+                        const valor = doc.data().valor || 0;
+                        total += parseFloat(valor) || 0;
+                    });
+                    
+                    document.getElementById('total-depositos').textContent = formatadorMoeda.format(total);
+                    atualizarTimestamp('timestamp-depositos');
+                    atualizarTimestampGeral();
+                    
+                    adicionarConsoleLog(`✅ Total de depósitos: ${formatadorMoeda.format(total)}`, 'success');
+                },
+                (error) => {
+                    document.getElementById('total-depositos').textContent = '❌ Erro';
+                    adicionarConsoleLog(`❌ Erro: ${error.message}`, 'error');
+                }
+            );
+            unsubscribers.push(unsubscribe);
+        } catch (error) {
+            document.getElementById('total-depositos').textContent = '❌ Erro';
+            adicionarConsoleLog(`❌ Erro: ${error.message}`, 'error');
+        }
+    }
+
+    // ===== 7. TOTAL DE SAQUES =====
+    function carregarTotalSaques() {
+        try {
+            const unsubscribe = db.collection('saques').onSnapshot(
+                (snapshot) => {
+                    let total = 0;
+                    snapshot.forEach(doc => {
+                        const valor = doc.data().valor || 0;
+                        total += parseFloat(valor) || 0;
+                    });
+                    
+                    document.getElementById('total-saques').textContent = formatadorMoeda.format(total);
+                    atualizarTimestamp('timestamp-saques');
+                    atualizarTimestampGeral();
+                    
+                    adicionarConsoleLog(`✅ Total de saques: ${formatadorMoeda.format(total)}`, 'success');
+                },
+                (error) => {
+                    document.getElementById('total-saques').textContent = '❌ Erro';
+                    adicionarConsoleLog(`❌ Erro: ${error.message}`, 'error');
+                }
+            );
+            unsubscribers.push(unsubscribe);
+        } catch (error) {
+            document.getElementById('total-saques').textContent = '❌ Erro';
+            adicionarConsoleLog(`❌ Erro: ${error.message}`, 'error');
+        }
+    }
+
+    // ===== FUNÇÕES DE CONTROLE =====
+    window.atualizarDadosManual = function() {
+        adicionarConsoleLog('Atualizando dados manualmente...', 'info');
+        adicionarConsoleLog('Atualização concluída', 'success');
+    }
+
+    window.recarregarPagina = function() {
+        adicionarConsoleLog('Recarregando página...', 'info');
+        location.reload();
+    }
+
+    window.exportarDados = function() {
+        const timestamp = new Date().toLocaleString('pt-BR');
+        const dados = {
+            exportadoEm: timestamp,
+            totalUsuarios: document.getElementById('total-usuarios').textContent,
+            usuariosAtivos: document.getElementById('usuarios-ativos').textContent,
+            saldoTotal: document.getElementById('saldo-total').textContent,
+            comprasAtivas: document.getElementById('compras-ativas').textContent,
+            rendimentosPagos: document.getElementById('rendimentos-pagos').textContent,
+            totalDepositos: document.getElementById('total-depositos').textContent,
+            totalSaques: document.getElementById('total-saques').textContent
+        };
+
+        const json = JSON.stringify(dados, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `metricas_${new Date().getTime()}.json`;
+        link.click();
+        URL.revokeObjectURL(url);
+
+        adicionarConsoleLog('✅ Dados exportados com sucesso', 'success');
+    }
+
+    window.limparConsole = limparConsole;
+
+    // ===== INICIAR APLICAÇÃO =====
+    inicializarFirebase();
+
+</script>
+
+</body>
+</html>
