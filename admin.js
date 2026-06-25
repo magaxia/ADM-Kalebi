@@ -20,7 +20,6 @@ let allUsers = [];
 let codesPage = 1;
 let usersPage = 1;
 let searchTerm = "";
-let pollInterval = null;
 
 // ─── Geração de código aleatório ────────────────────────────────────────────
 function randomSegment(len = 8) {
@@ -153,6 +152,18 @@ function renderUsers() {
     `Página ${usersPage} de ${totalPages} — ${allUsers.length} usuário(s) VIP`;
 }
 
+// ─── Timestamp da última atualização ─────────────────────────────────────────
+function updateLastRefresh() {
+  const el = document.getElementById("last-update");
+  if (!el) return;
+  const now = new Date();
+  el.textContent = "Atualizado: " + now.toLocaleTimeString("pt-BR", {
+    hour: "2-digit", minute: "2-digit", second: "2-digit"
+  }) + " — " + now.toLocaleDateString("pt-BR", {
+    day: "2-digit", month: "2-digit", year: "numeric"
+  });
+}
+
 // ─── Atualização completa ────────────────────────────────────────────────────
 async function refresh() {
   try {
@@ -160,10 +171,28 @@ async function refresh() {
     renderStats();
     renderCodes();
     renderUsers();
+    updateLastRefresh();
   } catch (err) {
     console.error("[ADMIN] Erro ao atualizar dados:", err.code, err.message, err);
   }
 }
+
+// ─── Atualização manual via botão ────────────────────────────────────────────
+window.refreshAdmin = async function () {
+  const btn = document.getElementById("btn-refresh");
+  if (btn) {
+    btn.disabled = true;
+    btn.classList.add("loading");
+  }
+  try {
+    await refresh();
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.classList.remove("loading");
+    }
+  }
+};
 
 // ─── Ações: Códigos ──────────────────────────────────────────────────────────
 window.resetCode = async function (id) {
@@ -330,14 +359,5 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   await refresh();
-
-  pollInterval = setInterval(async () => {
-    await refresh();
-  }, 10000);
-
-  console.log("[ADMIN] Polling a cada 10s iniciado. Timer:", pollInterval);
-});
-
-window.addEventListener("beforeunload", () => {
-  if (pollInterval) clearInterval(pollInterval);
+  console.log("[ADMIN] Dados carregados. Atualize manualmente conforme necessário.");
 });
