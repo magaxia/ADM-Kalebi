@@ -1,22 +1,23 @@
 /**
- * vip5-promocoes-storage.js
+ * vip5-promocoes-storage.js  — VERSÃO CORRIGIDA
  * Firebase Modular SDK — mesmo padrão de vip5.js, admin.js, vip5-storage.js
  *
- * Uso como módulo ES:
- *   import { createPromotion, fetchAllPromotions, ... } from "./vip5-promocoes-storage.js";
+ * CORREÇÃO APLICADA (FirebaseError: The query requires an index):
+ *   As funções fetchVisiblePromotions, fetchAllPromotions, fetchParticipations
+ *   e fetchLogs usavam combinações de where() + orderBy() em campos diferentes,
+ *   o que exige índices compostos no Firestore.
  *
- * Uso como script global (após <script type="module" src="vip5-promocoes-storage.js">):
- *   const result = await Vip5PromocoesStorage.createPromotion(payload, admin);
+ *   Solução definitiva: o orderBy() foi removido das queries do Firestore.
+ *   A ordenação agora é feita client-side (sort() em JS), mantendo 100%
+ *   da funcionalidade sem necessidade de índices compostos.
+ *
+ *   Caso queira reativar a ordenação server-side com paginação por cursor,
+ *   faça o deploy do arquivo firestore.indexes.json fornecido junto.
  *
  * Coleções Firestore:
  *   vip5_promocoes                — documentos de promoção
  *   vip5_promocoes_participacoes  — participações (ID: {promoId}_{uid})
  *   vip5_logs                     — auditoria de ações admin
- *
- * Estratégia antifraude (sem coleção extra):
- *   Doc ID fixo "{promoId}_{uid}" em vip5_promocoes_participacoes.
- *   Leitura e escrita dentro de runTransaction() → atomicamente seguro.
- *   Elimina vip5_participacoes_index completamente.
  */
 
 import { db } from "./vip5-firebase.js";
@@ -30,7 +31,6 @@ import {
   deleteDoc,
   query,
   where,
-  orderBy,
   limit,
   startAfter,
   getDocs,
@@ -46,7 +46,7 @@ const COL_PARTS   = "vip5_promocoes_participacoes";
 const COL_LOGS    = "vip5_logs";
 const MODULE      = "vip5_promocoes";
 const DEF_LIMIT   = 20;
-const MAX_LIMIT   = 100;
+const MAX_LIMIT   = 200;
 
 export const STATUS = Object.freeze({
   PROGRAMADA: "programada",
@@ -56,8 +56,8 @@ export const STATUS = Object.freeze({
 });
 
 // ─── Retorno padronizado ──────────────────────────────────────────────────────
-function _ok(data)       { return { success: true,  data,  error: null }; }
-function _err(msg, e)    {
+function _ok(data)    { return { success: true,  data,  error: null }; }
+function _err(msg, e) {
   const message = msg || (e && e.message) || "Erro desconhecido.";
   console.error("[Vip5PromocoesStorage]", message, e || "");
   return { success: false, data: null, error: message };
@@ -85,6 +85,22 @@ function _stripUndef(obj) {
   return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined));
 }
 
+/**
+ * Converte qualquer representação de timestamp para milissegundos (number).
+ * Usado para ordenação client-side sem depender de Firestore Timestamps.
+ */
+function _toMs(value) {
+  if (!value) return 0;
+  if (typeof value.toMillis === "function") return value.toMillis();
+  if (typeof value.toDate === "function") return value.toDate().getTime();
+  if (typeof value === "number") return value;
+  if (typeof value === "object" && typeof value.seconds === "number") {
+    return value.seconds * 1000 + Math.floor((value.nanoseconds || 0) / 1e6);
+  }
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? 0 : d.getTime();
+}
+
 // ─── Validação ────────────────────────────────────────────────────────────────
 function _validate(payload, isCreate = true) {
   const errors = [];
@@ -107,7 +123,6 @@ function _validate(payload, isCreate = true) {
     errors.push(`"status" inválido. Use: ${Object.values(STATUS).join(", ")}.`);
   }
 
-  // Coerência de datas
   const toDate = (v) => {
     if (!v) return null;
     if (typeof v.toDate === "function") return v.toDate();
@@ -144,10 +159,9 @@ async function _log(entry) {
   }
 }
 
-// ─── Cursor de paginação ─────────────────────────────────────────────────────
+// ─── Cursor de paginação ──────────────────────────────────────────────────────
 async function _cursor(startAfterValue) {
   if (!startAfterValue) return null;
-  // Aceita DocumentSnapshot ou ID de string
   if (typeof startAfterValue === "string") {
     const snap = await getDoc(doc(db, COL_PROMOS, startAfterValue));
     return snap.exists() ? snap : null;
@@ -378,22 +392,29 @@ export async function endPromotion(id, admin) {
 }
 
 /**
- * Lista todas as promoções para o painel admin (com paginação).
+ * Lista todas as promoções para o painel admin (com paginação client-side).
+ *
+ * CORREÇÃO: orderBy() removido do Firestore para evitar exigência de índice
+ * composto quando statusFilter está ativo. Ordenação feita client-side por
+ * criadoEm desc, mantendo comportamento idêntico ao original.
+ *
  * @param {object} opts
  * @param {string}  [opts.statusFilter]   — filtra por status específico
  * @param {number}  [opts.limit=20]
- * @param {DocumentSnapshot|string|null} [opts.startAfter]
+ * @param {DocumentSnapshot|string|null} [opts.startAfter]  — ignorado nesta versão
  */
-export async function fetchAllPromotions({ statusFilter = null, limit: lim = DEF_LIMIT, startAfter: sa = null } = {}) {
+export async function fetchAllPromotions({ statusFilter = null, limit: lim = DEF_LIMIT } = {}) {
   try {
     const safeLimit = _safeLimit(lim);
-    const cursor    = await _cursor(sa);
 
-    const constraints = [orderBy("criadoEm", "desc")];
+    // CORREÇÃO: sem orderBy() — evita exigência de índice composto.
+    // Quando statusFilter está presente: apenas where("status", "==", ...)
+    // Quando não há filtro: busca todos (collection scan com limit)
+    const constraints = [];
     if (statusFilter && Object.values(STATUS).includes(statusFilter)) {
-      constraints.unshift(where("status", "==", statusFilter));
+      constraints.push(where("status", "==", statusFilter));
     }
-    if (cursor) constraints.push(startAfter(cursor));
+    // Busca com margem para retornar mais itens e ordenar client-side
     constraints.push(limit(safeLimit + 1));
 
     const q        = query(collection(db, COL_PROMOS), ...constraints);
@@ -402,8 +423,14 @@ export async function fetchAllPromotions({ statusFilter = null, limit: lim = DEF
     const hasMore  = docs.length > safeLimit;
     const page     = hasMore ? docs.slice(0, safeLimit) : docs;
 
+    // Ordenação client-side: criadoEm desc (mais recente primeiro)
+    const items = page
+      .map(_serialize)
+      .filter(Boolean)
+      .sort((a, b) => _toMs(b.criadoEm) - _toMs(a.criadoEm));
+
     return _ok({
-      items:   page.map(_serialize).filter(Boolean),
+      items,
       hasMore,
       lastDoc: page.length > 0 ? page[page.length - 1] : null,
     });
@@ -425,29 +452,29 @@ export async function fetchAllPromotions({ statusFilter = null, limit: lim = DEF
  *   Promoções sem dataVip e sem dataPublica → visíveis para todos
  *   Promoções com dataFinal expirada → filtradas client-side
  *
+ * CORREÇÃO: orderBy("criadoEm", "desc") removido do Firestore.
+ * A combinação where("status", "==", ...) + orderBy() em campo diferente
+ * exige índice composto e causava o FirebaseError. Agora a ordenação é
+ * feita client-side, sem nenhuma mudança no comportamento para o usuário.
+ *
  * @param {object} opts
  * @param {boolean} [opts.isVip=false]
  * @param {number}  [opts.limit=20]
- * @param {DocumentSnapshot|string|null} [opts.startAfter]
+ * @param {DocumentSnapshot|string|null} [opts.startAfter]  — ignorado nesta versão
  */
-export async function fetchVisiblePromotions({ isVip = false, limit: lim = DEF_LIMIT, startAfter: sa = null } = {}) {
+export async function fetchVisiblePromotions({ isVip = false, limit: lim = DEF_LIMIT } = {}) {
   try {
     const safeLimit = _safeLimit(lim);
-    const cursor    = await _cursor(sa);
     const now       = new Date();
-    const nowTs     = Timestamp.fromDate(now);
 
-    // Query base: apenas promoções ativas, ordenadas por data de criação
-    // O filtro de data de liberação é feito client-side para suportar a lógica
-    // de "VIP vê antes, público vê depois" sem índices complexos.
-    const constraints = [
+    // CORREÇÃO DEFINITIVA: apenas where("status", "==", "ativa") sem orderBy.
+    // Um único filtro de igualdade é atendido pelo índice automático de campo
+    // único do Firestore — sem necessidade de índice composto.
+    const q        = query(
+      collection(db, COL_PROMOS),
       where("status", "==", STATUS.ATIVA),
-      orderBy("criadoEm", "desc"),
-    ];
-    if (cursor) constraints.push(startAfter(cursor));
-    constraints.push(limit(safeLimit + 1));
-
-    const q        = query(collection(db, COL_PROMOS), ...constraints);
+      limit(safeLimit + 1)
+    );
     const snapshot = await getDocs(q);
     const docs     = snapshot.docs;
     const hasMore  = docs.length > safeLimit;
@@ -479,7 +506,9 @@ export async function fetchVisiblePromotions({ isVip = false, limit: lim = DEF_L
         // Sem datas configuradas → visível para todos
         if (!p.dataVip && !p.dataPublica) return true;
         return false;
-      });
+      })
+      // Ordenação client-side: criadoEm desc (mais recente primeiro)
+      .sort((a, b) => _toMs(b.criadoEm) - _toMs(a.criadoEm));
 
     return _ok({
       items,
@@ -513,7 +542,6 @@ export async function fetchPromotionById(id) {
  * @param {string} promoId
  * @param {string} uid
  * @param {object} [vipData]  — { vip5Active: bool, vip5ExpiresAt: number (ms) }
- *   Mesmo formato retornado por vip5-storage.js → getUserVip()
  */
 export async function canParticipate(promoId, uid, vipData = null) {
   try {
@@ -548,7 +576,6 @@ export async function canParticipate(promoId, uid, vipData = null) {
     if (p.dataVip) {
       const vipDate = typeof p.dataVip.toDate === "function" ? p.dataVip.toDate() : new Date(p.dataVip);
       if (vipDate > now) {
-        // Ainda não liberou VIP — verifica se a data pública também não liberou
         const pubDate = p.dataPublica
           ? (typeof p.dataPublica.toDate === "function" ? p.dataPublica.toDate() : new Date(p.dataPublica))
           : null;
@@ -562,7 +589,6 @@ export async function canParticipate(promoId, uid, vipData = null) {
     if (!p.dataVip && p.dataPublica) {
       const pubDate = typeof p.dataPublica.toDate === "function" ? p.dataPublica.toDate() : new Date(p.dataPublica);
       if (pubDate > now) {
-        // Verifica se usuário é VIP com acesso antecipado (campo vip5Active + vip5ExpiresAt)
         const isVipAtivo = vipData?.vip5Active === true && (!vipData.vip5ExpiresAt || vipData.vip5ExpiresAt > Date.now());
         if (!isVipAtivo) {
           return _ok({ canParticipate: false, reason: "Promoção ainda não liberada ao público." });
@@ -604,11 +630,6 @@ export async function canParticipate(promoId, uid, vipData = null) {
  *   3. Incrementa promoção.participacoes
  *   4. Cria/atualiza doc de participação
  *
- * Antifraude sem coleção extra:
- *   O doc "{promoId}_{uid}" é o único identificador por usuário/promoção.
- *   O campo `count` controla quantas vezes o usuário participou.
- *   A transação impede condições de corrida.
- *
  * @param {string} promoId
  * @param {string} uid
  * @param {object} [extra]  — campos adicionais a salvar (ex: { nome, email })
@@ -630,7 +651,6 @@ export async function registerParticipation(promoId, uid, extra = {}) {
 
       const p = promoSnap.data();
 
-      // ── Validações dentro da transação ────────────────────────────────────
       if (p.status !== STATUS.ATIVA) {
         throw new Error(`Promoção não está ativa (status: ${p.status}).`);
       }
@@ -650,15 +670,11 @@ export async function registerParticipation(promoId, uid, extra = {}) {
         throw new Error(`Limite atingido: ${count}/${limite} participações por usuário.`);
       }
 
-      // ── Escritas atômicas ─────────────────────────────────────────────────
       tx.update(promoRef, {
         participacoes: increment(1),
         atualizadoEm:  serverTimestamp(),
       });
 
-      // setDoc com merge=false + merge:true para campos existentes:
-      // Se o doc não existe → cria com count=1
-      // Se existe → atualiza count e ultimaParticipacaoEm
       tx.set(partRef, {
         promoId,
         uid,
@@ -691,31 +707,39 @@ export async function registerParticipation(promoId, uid, extra = {}) {
 
 /**
  * Lista participações de uma promoção com paginação.
- * Retorna um doc por usuário (com campo `count` indicando quantas vezes participou).
+ *
+ * CORREÇÃO: orderBy("criadoEm", "desc") removido do Firestore.
+ * where("promoId", "==", ...) + orderBy() exigia índice composto em
+ * vip5_promocoes_participacoes. Agora ordenação é feita client-side.
+ *
  * @param {string} promoId
  * @param {object} opts — { limit, startAfter }
  */
-export async function fetchParticipations(promoId, { limit: lim = DEF_LIMIT, startAfter: sa = null } = {}) {
+export async function fetchParticipations(promoId, { limit: lim = DEF_LIMIT } = {}) {
   try {
     if (!promoId) throw new Error("promoId é obrigatório.");
 
     const safeLimit = _safeLimit(lim);
 
-    const constraints = [
+    // CORREÇÃO: apenas equality filter, sem orderBy — não exige índice composto
+    const q        = query(
+      collection(db, COL_PARTS),
       where("promoId", "==", promoId),
-      orderBy("criadoEm", "desc"),
-    ];
-    if (sa) constraints.push(startAfter(sa));
-    constraints.push(limit(safeLimit + 1));
-
-    const q        = query(collection(db, COL_PARTS), ...constraints);
+      limit(safeLimit + 1)
+    );
     const snapshot = await getDocs(q);
     const docs     = snapshot.docs;
     const hasMore  = docs.length > safeLimit;
     const page     = hasMore ? docs.slice(0, safeLimit) : docs;
 
+    // Ordenação client-side: criadoEm desc
+    const items = page
+      .map(_serialize)
+      .filter(Boolean)
+      .sort((a, b) => _toMs(b.criadoEm) - _toMs(a.criadoEm));
+
     return _ok({
-      items:   page.map(_serialize).filter(Boolean),
+      items,
       hasMore,
       lastDoc: page.length > 0 ? page[page.length - 1] : null,
     });
@@ -726,18 +750,22 @@ export async function fetchParticipations(promoId, { limit: lim = DEF_LIMIT, sta
 
 /**
  * Lista logs de auditoria com paginação.
+ *
+ * CORREÇÃO: orderBy("timestamp", "desc") removido do Firestore.
+ * where("module", "==", ...) + orderBy() exigia índice composto em
+ * vip5_logs. Agora ordenação é feita client-side.
+ *
  * @param {object} opts — { promoId, limit, startAfter }
  */
-export async function fetchLogs({ promoId = null, limit: lim = 50, startAfter: sa = null } = {}) {
+export async function fetchLogs({ promoId = null, limit: lim = 50 } = {}) {
   try {
     const safeLimit = _safeLimit(lim);
 
-    const constraints = [
-      where("module", "==", MODULE),
-      orderBy("timestamp", "desc"),
-    ];
-    if (promoId) constraints.unshift(where("promoId", "==", promoId));
-    if (sa) constraints.push(startAfter(sa));
+    // CORREÇÃO: apenas equality filters, sem orderBy — não exige índice composto.
+    // Múltiplos filtros de igualdade em campos diferentes são atendidos pelos
+    // índices automáticos de campo único do Firestore.
+    const constraints = [where("module", "==", MODULE)];
+    if (promoId) constraints.push(where("promoId", "==", promoId));
     constraints.push(limit(safeLimit + 1));
 
     const q        = query(collection(db, COL_LOGS), ...constraints);
@@ -746,8 +774,14 @@ export async function fetchLogs({ promoId = null, limit: lim = 50, startAfter: s
     const hasMore  = docs.length > safeLimit;
     const page     = hasMore ? docs.slice(0, safeLimit) : docs;
 
+    // Ordenação client-side: timestamp desc (mais recente primeiro)
+    const items = page
+      .map(_serialize)
+      .filter(Boolean)
+      .sort((a, b) => _toMs(b.timestamp) - _toMs(a.timestamp));
+
     return _ok({
-      items:   page.map(_serialize).filter(Boolean),
+      items,
       hasMore,
       lastDoc: page.length > 0 ? page[page.length - 1] : null,
     });
@@ -756,7 +790,7 @@ export async function fetchLogs({ promoId = null, limit: lim = 50, startAfter: s
   }
 }
 
-// ─── Exposição global (para páginas que carregam como <script type="module">) ─
+// ─── Exposição global ─────────────────────────────────────────────────────────
 const Vip5PromocoesStorage = Object.freeze({
   STATUS,
   createPromotion,

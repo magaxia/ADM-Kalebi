@@ -1,0 +1,46 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "vip5_logs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "module",  "order": "ASCENDING" },
+        { "fieldPath": "promoId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "vip5_promocoes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status",   "order": "ASCENDING"  },
+        { "fieldPath": "criadoEm", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "vip5_promocoes_participacoes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "promoId",  "order": "ASCENDING"  },
+        { "fieldPath": "criadoEm", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "vip5_logs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "module",    "order": "ASCENDING"  },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "vip5_logs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "module",    "order": "ASCENDING"  },
+        { "fieldPath": "promoId",   "order": "ASCENDING"  },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
