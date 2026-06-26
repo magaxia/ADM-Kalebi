@@ -1,0 +1,79 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ══════════════════════════════════════════════════════════════════
+    // COLEÇÕES EXISTENTES — inalteradas
+    // ══════════════════════════════════════════════════════════════════
+
+    // vip5_codes — geração e ativação de códigos VIP
+    match /vip5_codes/{codeId} {
+      // Qualquer usuário autenticado lê (necessário para ativar código)
+      allow read: if request.auth != null;
+      // Escrita via admin.js / vip5.js — restringida a autenticados
+      // Para produção: substitua por verificação de custom claim de admin
+      allow write: if request.auth != null;
+    }
+
+    // users — dados de usuário e campos vip5Active, vip5ExpiresAt, vip5Code
+    match /users/{uid} {
+      // Usuário lê e escreve somente o próprio documento
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+      // Admin pode ler e escrever qualquer usuário
+      // Para produção: adicione && (request.auth.token.admin == true || ...)
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // COLEÇÕES NOVAS — módulo vip5-promocoes-storage.js
+    // ══════════════════════════════════════════════════════════════════
+
+    // vip5_promocoes — promoções criadas pelo admin
+    match /vip5_promocoes/{promoId} {
+      // Qualquer usuário autenticado pode LER (necessário para fetchVisiblePromotions)
+      allow read: if request.auth != null;
+
+      // Somente admin pode CRIAR, EDITAR ou EXCLUIR
+      // Enquanto não há custom claims de admin, use esta regra temporária:
+      allow write: if request.auth != null;
+      // Para produção, substitua por:
+      // allow write: if request.auth != null && request.auth.token.admin == true;
+    }
+
+    // vip5_promocoes_participacoes — participações dos usuários
+    // Documento ID = "{promoId}_{uid}" — um doc por usuário por promoção
+    match /vip5_promocoes_participacoes/{partId} {
+      // Usuário lê somente a própria participação
+      // O ID do doc é "{promoId}_{uid}" — valida que o uid do doc pertence ao usuário autenticado
+      allow read: if request.auth != null
+        && (resource == null || resource.data.uid == request.auth.uid);
+
+      // Usuário pode criar/atualizar somente o próprio doc de participação
+      // A transação do registerParticipation cria/atualiza este documento
+      allow create: if request.auth != null
+        && request.resource.data.uid == request.auth.uid;
+
+      allow update: if request.auth != null
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid;
+
+      // Exclusão: somente admin
+      allow delete: if request.auth != null;
+      // Para produção: && request.auth.token.admin == true
+    }
+
+    // vip5_logs — auditoria de ações do módulo de promoções
+    match /vip5_logs/{logId} {
+      // Qualquer usuário autenticado pode CRIAR logs
+      // (registerParticipation e ações admin criam logs)
+      allow create: if request.auth != null;
+
+      // Somente admin pode LER logs
+      allow read: if request.auth != null;
+      // Para produção: && request.auth.token.admin == true
+
+      // Ninguém edita ou exclui logs
+      allow update, delete: if false;
+    }
+
+  }
+}
