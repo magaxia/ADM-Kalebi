@@ -301,6 +301,132 @@
       margin-left: auto;
     }
 
+    .hidden {
+      display: none !important;
+    }
+
+    .inline-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .image-preview {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      margin-top: 10px;
+    }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(120px, 1fr));
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .detail-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      min-height: 100px;
+    }
+
+    .detail-card strong {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--muted);
+      text-transform: uppercase;
+      font-size: 10px;
+      letter-spacing: 1px;
+    }
+
+    .detail-card span {
+      display: block;
+      font-size: 14px;
+      color: var(--text);
+      word-break: break-word;
+    }
+
+    .toast-container {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      display: grid;
+      gap: 10px;
+      z-index: 999;
+      width: min(360px, calc(100% - 40px));
+    }
+
+    .toast {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      background: rgba(20, 20, 20, 0.96);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--text);
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.24);
+      animation: toastAppear 0.24s ease;
+    }
+
+    .toast.success { border-color: rgba(39, 174, 96, 0.35); }
+    .toast.error { border-color: rgba(231, 76, 60, 0.35); }
+
+    @keyframes toastAppear {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .table-wrap.small {
+      overflow-x: auto;
+      margin-top: 12px;
+    }
+
+    .form-group textarea {
+      min-height: 90px;
+      resize: vertical;
+    }
+
+    .panel-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .panel-label .subtitle {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .sorteio-card-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    @media (max-width: 900px) {
+      .detail-grid { grid-template-columns: 1fr 1fr; }
+      .form-row { gap: 10px; }
+    }
+
+    @media (max-width: 680px) {
+      .stats-grid, .detail-grid { grid-template-columns: 1fr; }
+      .panel-label { flex-direction: column; align-items: stretch; }
+      .panel-label .subtitle { margin-top: 8px; }
+    }
+
     /* ── Table ── */
     .table-wrap {
       overflow-x: auto;
@@ -618,6 +744,223 @@
       </div>
     </div>
 
+    <!-- Gerenciamento de Sorteios VIP -->
+    <div class="card">
+      <div class="panel-label">
+        <div>
+          <p class="card-title">Sorteios VIP</p>
+          <div class="subtitle">Crie, edite, duplique, encerre e visualize sorteios com participantes em tempo real.</div>
+        </div>
+        <button class="btn btn-primary" onclick="refreshSorteios()">Atualizar sorteios</button>
+      </div>
+
+      <div class="form-row" style="margin-bottom:16px">
+        <div class="form-group" style="flex:1;min-width:180px">
+          <label>Pesquisar sorteio</label>
+          <input type="text" id="sorteio-search" placeholder="Título ou ID" />
+        </div>
+        <div class="form-group" style="width:180px">
+          <label>Status</label>
+          <select id="sorteio-filter-status" onchange="sorteioFilterChange()">
+            <option value="">Todos status</option>
+            <option value="ativa">Ativa</option>
+            <option value="pausada">Pausada</option>
+            <option value="programada">Programada</option>
+            <option value="encerrada">Encerrada</option>
+          </select>
+        </div>
+        <div class="form-group" style="width:180px">
+          <label>VIP antecipado</label>
+          <select id="sorteio-filter-vip" onchange="sorteioFilterChange()">
+            <option value="">Todos</option>
+            <option value="com-vip">Com VIP</option>
+            <option value="sem-vip">Sem VIP</option>
+          </select>
+        </div>
+        <div class="form-group" style="width:180px">
+          <label>Ordenar por</label>
+          <select id="sorteio-sort" onchange="sorteioFilterChange()">
+            <option value="createdAt_desc">Data de criação ↓</option>
+            <option value="createdAt_asc">Data de criação ↑</option>
+            <option value="dataFinal_desc">Encerramento ↓</option>
+            <option value="dataFinal_asc">Encerramento ↑</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <p class="card-title">Estatísticas de Sorteios</p>
+      <div class="stats-grid" style="margin-top:16px">
+        <div class="stat-box">
+          <div class="stat-value total" id="stat-sorteios-total">—</div>
+          <div class="stat-label">Sorteios</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value used" id="stat-sorteios-active">—</div>
+          <div class="stat-label">Ativos</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value free" id="stat-sorteios-participants">—</div>
+          <div class="stat-label">Participantes</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value total" id="stat-sorteios-winners">—</div>
+          <div class="stat-label">Vencedores</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <p class="card-title" id="sorteio-form-title">Novo sorteio VIP</p>
+      <form id="sorteio-form">
+        <div class="form-row">
+          <div class="form-group" style="flex:2;min-width:220px">
+            <label>Título *</label>
+            <input type="text" id="sorteio-titulo" placeholder="Ex: Sorteio VIP Black Friday" maxlength="200" required />
+          </div>
+          <div class="form-group" style="width:140px">
+            <label>Vagas (0=∞)</label>
+            <input type="number" id="sorteio-qty" value="0" min="0" />
+          </div>
+          <div class="form-group" style="width:140px">
+            <label>Limite/usuário</label>
+            <input type="number" id="sorteio-limite" value="1" min="0" />
+          </div>
+          <div class="form-group" style="width:140px">
+            <label>Status</label>
+            <select id="sorteio-status-sel">
+              <option value="programada">Programada</option>
+              <option value="ativa">Ativa</option>
+              <option value="pausada">Pausada</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row" style="margin-top:12px">
+          <div class="form-group" style="flex:1;min-width:180px">
+            <label>Abertura VIP</label>
+            <input type="datetime-local" id="sorteio-data-vip" />
+          </div>
+          <div class="form-group" style="flex:1;min-width:180px">
+            <label>Abertura Pública</label>
+            <input type="datetime-local" id="sorteio-data-publica" />
+          </div>
+          <div class="form-group" style="flex:1;min-width:180px">
+            <label>Encerramento</label>
+            <input type="datetime-local" id="sorteio-data-final" />
+          </div>
+          <div class="form-group" style="flex:1;min-width:180px">
+            <label>Tipo</label>
+            <input type="text" id="sorteio-tipo" placeholder="Ex: vip" maxlength="100" />
+          </div>
+        </div>
+
+        <div class="form-row" style="margin-top:12px">
+          <div class="form-group" style="flex:1;min-width:220px">
+            <label>Descrição</label>
+            <textarea id="sorteio-descricao" placeholder="Descrição do sorteio" maxlength="1000"></textarea>
+          </div>
+          <div class="form-group" style="width:260px">
+            <label>Imagem de capa</label>
+            <input type="file" id="sorteio-image-input" accept="image/*" />
+            <img id="sorteio-image-preview" class="image-preview hidden" alt="Preview da imagem" />
+          </div>
+        </div>
+
+        <div class="sorteio-card-actions">
+          <button type="submit" class="btn btn-primary" id="sorteio-submit-btn">Salvar sorteio</button>
+          <button type="button" class="btn btn-outline" id="sorteio-reset-btn">Limpar formulário</button>
+        </div>
+        <p class="gen-status" id="sorteio-form-status"></p>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="panel-label">
+        <div>
+          <p class="card-title">Lista de Sorteios VIP</p>
+          <div class="subtitle">Selecione um sorteio para ver detalhes e participantes em tempo real.</div>
+        </div>
+        <div class="sorteio-card-actions">
+          <button class="btn btn-outline" onclick="resetSorteioForm()">Novo sorteio</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Título</th>
+              <th>Status</th>
+              <th>Participantes</th>
+              <th>Vencedor</th>
+              <th>VIP</th>
+              <th>Datas</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="sorteios-tbody">
+            <tr><td colspan="7" style="text-align:center;color:#555;padding:24px">Carregando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pagination">
+        <button class="btn btn-outline" style="padding:6px 14px" onclick="sorteiosPagePrev()">← Anterior</button>
+        <span id="sorteios-pagination"></span>
+        <button class="btn btn-outline" style="padding:6px 14px" onclick="sorteiosPageNext()">Próxima →</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <p class="card-title">Detalhes do sorteio</p>
+        <span id="sorteio-detail-title" class="subtitle">Selecione um sorteio para visualizar detalhes</span>
+      </div>
+
+      <div class="detail-grid" id="sorteio-detail-grid">
+        <div class="detail-card">
+          <strong>Status</strong>
+          <span id="detail-status">—</span>
+        </div>
+        <div class="detail-card">
+          <strong>Participantes</strong>
+          <span id="detail-participants">—</span>
+        </div>
+        <div class="detail-card">
+          <strong>Vencedor</strong>
+          <span id="detail-winner">—</span>
+        </div>
+        <div class="detail-card">
+          <strong>Datas</strong>
+          <span id="detail-dates">—</span>
+        </div>
+      </div>
+
+      <div class="table-wrap small">
+        <table>
+          <thead>
+            <tr>
+              <th>UID</th>
+              <th>Contagem</th>
+              <th>Status</th>
+              <th>Última participação</th>
+            </tr>
+          </thead>
+          <tbody id="sorteio-participants-tbody">
+            <tr><td colspan="4" style="text-align:center;color:#555;padding:24px">Selecione um sorteio para ver participantes.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="sorteio-card-actions" style="justify-content: flex-end; margin-top: 16px;">
+        <button class="btn btn-sm btn-blue" onclick="drawWinnerSelected()">Sortear vencedor</button>
+        <button class="btn btn-sm btn-reset" onclick="rerollWinnerSelected()">Refazer sorteio</button>
+      </div>
+    </div>
+
+    <div id="toast-container"></div>
   </div>
 
   <script type="module" src="admin.js"></script>
