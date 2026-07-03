@@ -51,6 +51,7 @@ const VIP_CODES_COL = "vip5_codes";
 const USERS_COL     = "users";
 const VIP_SORTEIOS_COL = "vip5_sorteios";
 const VIP_SORTEIO_PARTICIPANTS = "participantes";
+const PRODUTOS_ANTECIPADOS_COL = "produtos_antecipados";
 const PAGE_SIZE     = 20;
 const SORTEIOS_PAGE_SIZE = 12;
 const PARTICIPANTS_PAGE_SIZE = 100;
@@ -66,6 +67,8 @@ let searchTerm = "";
 let allPromos        = [];
 let promosPage       = 1;
 let promoStatusFilter = "";
+let allProdutosAntecipados = [];
+let produtosSearchTerm = "";
 
 // ── Estado: Sorteios VIP ──────────────────────────────────────────────────────
 let allSorteios = [];
@@ -945,11 +948,12 @@ window.sorteioImageInputChanged = function (event) {
 
 async function refresh() {
   try {
-    await Promise.all([fetchCodes(), fetchUsers(), fetchPromotions()]);
+    await Promise.all([fetchCodes(), fetchUsers(), fetchPromotions(), fetchProdutosAntecipados()]);
     renderStats();
     renderCodes();
     renderUsers();
     renderPromotions();
+    window.renderizarProdutosAntecipados();
     await refreshSorteios();
     updateLastRefresh();
   } catch (err) {
@@ -1071,6 +1075,291 @@ window.promoFilterChange = function () {
   promosPage = 1;
   fetchPromotions().then(renderPromotions);
 };
+
+async function fetchProdutosAntecipados() {
+  try {
+    const snap = await getDocs(collection(db, PRODUTOS_ANTECIPADOS_COL));
+    allProdutosAntecipados = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => {
+        const ordemA = Number(a.ordem ?? 0);
+        const ordemB = Number(b.ordem ?? 0);
+        if (ordemB !== ordemA) return ordemB - ordemA;
+        const criadoA = a.criadoEm ? a.criadoEm.toMillis ? a.criadoEm.toMillis() : new Date(a.criadoEm).getTime() : 0;
+        const criadoB = b.criadoEm ? b.criadoEm.toMillis ? b.criadoEm.toMillis() : new Date(b.criadoEm).getTime() : 0;
+        return criadoB - criadoA;
+      });
+  } catch (err) {
+    console.error('[ADMIN] Erro ao carregar produtos antecipados:', err);
+    allProdutosAntecipados = [];
+  }
+}
+
+window.carregarProdutosAntecipados = async function () {
+  console.log('[ADMIN] carregarProdutosAntecipados: inicializando produtos antecipados.');
+  await fetchProdutosAntecipados();
+  window.renderizarProdutosAntecipados();
+};
+
+window.renderizarProdutosAntecipados = function () {
+  const tbody = document.getElementById('produtos-antecipados-tbody');
+  if (!tbody) return;
+
+  const filtered = allProdutosAntecipados.filter(p => {
+    if (!produtosSearchTerm) return true;
+    const needle = produtosSearchTerm.toLowerCase();
+    return String(p.nome || '').toLowerCase().includes(needle)
+      || String(p.codigo || '').toLowerCase().includes(needle);
+  });
+
+  if (!filtered.length) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#555;padding:24px">Nenhum produto antecipado disponível.</td></tr>`;
+  } else {
+    tbody.innerHTML = filtered.map(produto => {
+      const status = produto.ativo ? 'Ativo' : 'Inativo';
+      const preco = Number(produto.preco || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+      const dataPrevista = produto.dataPublicacao
+        ? (produto.dataPublicacao.toDate ? produto.dataPublicacao.toDate() : new Date(produto.dataPublicacao)).toLocaleDateString('pt-BR')
+        : '—';
+
+      return `
+        <tr>
+          <td>${produto.codigo || '—'}</td>
+          <td>${produto.nome || '—'}</td>
+          <td>${status}</td>
+          <td>${preco}</td>
+          <td>${dataPrevista}</td>
+          <td>
+            <button class="btn btn-sm btn-outline" type="button" onclick="editarProdutoAntecipado('${produto.id}')">Editar</button>
+            <button class="btn btn-sm btn-delete" type="button" onclick="excluirProdutoAntecipado('${produto.id}')">Excluir</button>
+          </td>
+        </tr>`;
+    }).join('');
+  }
+
+  document.getElementById('produtos-stat-total').textContent = allProdutosAntecipados.length.toString();
+  document.getElementById('produtos-stat-publicados').textContent = allProdutosAntecipados.filter(p => p.ativo).length.toString();
+  document.getElementById('produtos-stat-pendentes').textContent = allProdutosAntecipados.filter(p => !p.ativo).length.toString();
+  document.getElementById('produtos-stat-atualizados').textContent = allProdutosAntecipados.filter(p => p.atualizadoEm).length.toString();
+};
+
+function getProdutoAntecipadoFormValues() {
+  const parseDate = (value) => value ? new Date(value) : null;
+  const imagensRaw = document.getElementById('produto-antecipado-imagens')?.value || '';
+  return {
+    id: document.getElementById('produto-antecipado-id')?.value || '',
+    codigo: document.getElementById('produto-antecipado-codigo')?.value.trim(),
+    nome: document.getElementById('produto-antecipado-nome')?.value.trim(),
+    descricao: document.getElementById('produto-antecipado-descricao')?.value.trim(),
+    categoria: document.getElementById('produto-antecipado-categoria')?.value.trim(),
+    marca: document.getElementById('produto-antecipado-marca')?.value.trim(),
+    sku: document.getElementById('produto-antecipado-sku')?.value.trim(),
+    imagemPrincipal: document.getElementById('produto-antecipado-imagem-principal')?.value.trim(),
+    imagens: imagensRaw.split(',').map(x => x.trim()).filter(x => x),
+    preco: parseFloat(document.getElementById('produto-antecipado-preco')?.value || 0),
+    precoPromocional: parseFloat(document.getElementById('produto-antecipado-preco-promocional')?.value || 0),
+    desconto: parseFloat(document.getElementById('produto-antecipado-desconto')?.value || 0),
+    estoque: parseInt(document.getElementById('produto-antecipado-estoque')?.value || 0, 10),
+    estoqueMinimo: parseInt(document.getElementById('produto-antecipado-estoque-minimo')?.value || 0, 10),
+    ativo: document.getElementById('produto-antecipado-ativo')?.checked === true,
+    destaque: document.getElementById('produto-antecipado-destaque')?.checked === true,
+    exclusivoVip5: document.getElementById('produto-antecipado-exclusivo-vip5')?.checked === true,
+    dataPublicacao: parseDate(document.getElementById('produto-antecipado-data-publicacao')?.value),
+    dataExpiracao: parseDate(document.getElementById('produto-antecipado-data-expiracao')?.value),
+    categoriaInfo: {
+      nome: document.getElementById('produto-antecipado-categoria')?.value.trim(),
+      cor: document.getElementById('produto-antecipado-categoria-cor')?.value.trim(),
+      icone: document.getElementById('produto-antecipado-categoria-icone')?.value.trim(),
+    },
+    configuracao: {
+      permitirCompra: true,
+      permitirReserva: false,
+      exibirEstoque: true,
+      exibirPreco: true,
+      exibirDesconto: true,
+    },
+    ordem: parseInt(document.getElementById('produto-antecipado-ordem')?.value || 0, 10),
+  };
+}
+
+function validateProdutoAntecipado(data) {
+  if (!data.codigo) return 'O campo Código é obrigatório.';
+  if (!data.nome) return 'O campo Nome do produto é obrigatório.';
+  if (!data.categoria) return 'O campo Categoria é obrigatório.';
+  if (!data.marca) return 'O campo Marca é obrigatório.';
+  if (!Number.isFinite(data.preco) || data.preco <= 0) return 'O campo Preço deve ser maior que zero.';
+  if (!Number.isFinite(data.estoque) || data.estoque < 0) return 'O campo Estoque deve ser zero ou maior.';
+  return null;
+}
+
+window.abrirModalProdutoAntecipado = function () {
+  resetProdutoAntecipadoForm();
+  const formCard = document.getElementById('produto-antecipado-form-card');
+  if (formCard) {
+    formCard.classList.remove('hidden');
+    formCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+};
+
+window.fecharModalProdutoAntecipado = function () {
+  const formCard = document.getElementById('produto-antecipado-form-card');
+  if (formCard) {
+    formCard.classList.add('hidden');
+  }
+};
+
+function resetProdutoAntecipadoForm() {
+  document.getElementById('produto-antecipado-form-title').textContent = 'Novo Produto Antecipado';
+  document.getElementById('produto-antecipado-id').value = '';
+  document.getElementById('produto-antecipado-codigo').value = '';
+  document.getElementById('produto-antecipado-nome').value = '';
+  document.getElementById('produto-antecipado-descricao').value = '';
+  document.getElementById('produto-antecipado-categoria').value = '';
+  document.getElementById('produto-antecipado-marca').value = '';
+  document.getElementById('produto-antecipado-sku').value = '';
+  document.getElementById('produto-antecipado-imagem-principal').value = '';
+  document.getElementById('produto-antecipado-imagens').value = '';
+  document.getElementById('produto-antecipado-preco').value = '';
+  document.getElementById('produto-antecipado-preco-promocional').value = '';
+  document.getElementById('produto-antecipado-desconto').value = '';
+  document.getElementById('produto-antecipado-ordem').value = '0';
+  document.getElementById('produto-antecipado-estoque').value = '0';
+  document.getElementById('produto-antecipado-estoque-minimo').value = '0';
+  document.getElementById('produto-antecipado-data-publicacao').value = '';
+  document.getElementById('produto-antecipado-data-expiracao').value = '';
+  document.getElementById('produto-antecipado-categoria-cor').value = '';
+  document.getElementById('produto-antecipado-categoria-icone').value = '';
+  document.getElementById('produto-antecipado-ativo').checked = false;
+  document.getElementById('produto-antecipado-destaque').checked = false;
+  document.getElementById('produto-antecipado-exclusivo-vip5').checked = false;
+}
+
+window.editarProdutoAntecipado = function (id) {
+  const produto = allProdutosAntecipados.find(p => p.id === id);
+  if (!produto) return;
+
+  document.getElementById('produto-antecipado-form-title').textContent = 'Editar Produto Antecipado';
+  document.getElementById('produto-antecipado-id').value = produto.id || '';
+  document.getElementById('produto-antecipado-codigo').value = produto.codigo || '';
+  document.getElementById('produto-antecipado-nome').value = produto.nome || '';
+  document.getElementById('produto-antecipado-descricao').value = produto.descricao || '';
+  document.getElementById('produto-antecipado-categoria').value = produto.categoria || '';
+  document.getElementById('produto-antecipado-marca').value = produto.marca || '';
+  document.getElementById('produto-antecipado-sku').value = produto.sku || '';
+  document.getElementById('produto-antecipado-imagem-principal').value = produto.imagemPrincipal || '';
+  document.getElementById('produto-antecipado-imagens').value = (produto.imagens || []).join(', ');
+  document.getElementById('produto-antecipado-preco').value = produto.preco || '';
+  document.getElementById('produto-antecipado-preco-promocional').value = produto.precoPromocional || '';
+  document.getElementById('produto-antecipado-desconto').value = produto.desconto || '';
+  document.getElementById('produto-antecipado-ordem').value = produto.ordem || '0';
+  document.getElementById('produto-antecipado-estoque').value = produto.estoque || '0';
+  document.getElementById('produto-antecipado-estoque-minimo').value = produto.estoqueMinimo || '0';
+  document.getElementById('produto-antecipado-data-publicacao').value = produto.dataPublicacao ? (produto.dataPublicacao.toDate ? produto.dataPublicacao.toDate().toISOString().slice(0,16) : new Date(produto.dataPublicacao).toISOString().slice(0,16)) : '';
+  document.getElementById('produto-antecipado-data-expiracao').value = produto.dataExpiracao ? (produto.dataExpiracao.toDate ? produto.dataExpiracao.toDate().toISOString().slice(0,16) : new Date(produto.dataExpiracao).toISOString().slice(0,16)) : '';
+  document.getElementById('produto-antecipado-categoria-cor').value = produto.categoriaInfo?.cor || '';
+  document.getElementById('produto-antecipado-categoria-icone').value = produto.categoriaInfo?.icone || '';
+  document.getElementById('produto-antecipado-ativo').checked = produto.ativo === true;
+  document.getElementById('produto-antecipado-destaque').checked = produto.destaque === true;
+  document.getElementById('produto-antecipado-exclusivo-vip5').checked = produto.exclusivoVip5 === true;
+
+  const formCard = document.getElementById('produto-antecipado-form-card');
+  if (formCard) {
+    formCard.classList.remove('hidden');
+    formCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+};
+
+window.excluirProdutoAntecipado = async function (id) {
+  if (!confirm('Excluir este produto antecipado?')) return;
+  try {
+    await deleteDoc(doc(db, PRODUTOS_ANTECIPADOS_COL, id));
+    await window.carregarProdutosAntecipados();
+  } catch (err) {
+    console.error('[ADMIN] Erro ao excluir produto antecipado:', err);
+    alert('Erro ao excluir produto antecipado. Veja console para detalhes.');
+  }
+};
+
+window.pesquisarProdutosAntecipados = function () {
+  const input = document.getElementById('produtos-search-input');
+  produtosSearchTerm = input ? input.value.trim().toLowerCase() : '';
+  console.log('[ADMIN] pesquisarProdutosAntecipados:', produtosSearchTerm);
+  window.renderizarProdutosAntecipados();
+};
+
+window.atualizarProdutosAntecipados = function () {
+  console.log('[ADMIN] atualizarProdutosAntecipados: atualizar dados de produtos antecipados.');
+  window.carregarProdutosAntecipados();
+};
+
+window.salvarProdutoAntecipado = async function () {
+  const data = getProdutoAntecipadoFormValues();
+  const validationError = validateProdutoAntecipado(data);
+  if (validationError) {
+    alert(validationError);
+    return;
+  }
+
+  const payload = {
+    codigo: data.codigo,
+    nome: data.nome,
+    descricao: data.descricao,
+    categoria: data.categoria,
+    marca: data.marca,
+    sku: data.sku || null,
+    imagemPrincipal: data.imagemPrincipal || null,
+    imagens: data.imagens,
+    preco: data.preco,
+    precoPromocional: data.precoPromocional || 0,
+    desconto: data.desconto || 0,
+    estoque: data.estoque,
+    estoqueMinimo: data.estoqueMinimo || 0,
+    ativo: data.ativo,
+    destaque: data.destaque,
+    exclusivoVip5: data.exclusivoVip5,
+    dataPublicacao: data.dataPublicacao,
+    dataExpiracao: data.dataExpiracao,
+    atualizadoPor: null,
+    ordem: data.ordem || 0,
+    categoriaInfo: data.categoriaInfo,
+    configuracao: data.configuracao,
+  };
+
+  const submitBtn = document.getElementById('produto-antecipado-submit-btn');
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = data.id ? 'Salvando...' : 'Cadastrando...';
+  }
+
+  try {
+    if (data.id) {
+      await updateDoc(doc(db, PRODUTOS_ANTECIPADOS_COL, data.id), {
+        ...payload,
+        atualizadoEm: serverTimestamp(),
+      });
+    } else {
+      const produtoRef = doc(collection(db, PRODUTOS_ANTECIPADOS_COL));
+      await setDoc(produtoRef, {
+        ...payload,
+        id: produtoRef.id,
+        criadoEm: serverTimestamp(),
+        atualizadoEm: serverTimestamp(),
+      });
+    }
+
+    await window.carregarProdutosAntecipados();
+    resetProdutoAntecipadoForm();
+    window.fecharModalProdutoAntecipado();
+  } catch (err) {
+    console.error('[ADMIN] Erro ao salvar produto antecipado:', err);
+    alert('Erro ao salvar produto antecipado. Veja console para detalhes.');
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Salvar';
+    }
+  }
+}
 
 // ─── Paginação ────────────────────────────────────────────────────────────────
 window.codesPagePrev = () => { if (codesPage > 1) { codesPage--; renderCodes(); } };
