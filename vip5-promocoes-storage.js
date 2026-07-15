@@ -43,6 +43,7 @@ import {
 // ─── Constantes ───────────────────────────────────────────────────────────────
 const COL_PROMOS  = "vip5_promocoes";
 const COL_PARTS   = "vip5_promocoes_participacoes";
+const COL_USES    = "vip5_promocoes_usos";
 const COL_LOGS    = "vip5_logs";
 const MODULE      = "vip5_promocoes";
 const DEF_LIMIT   = 20;
@@ -72,6 +73,14 @@ function _toTimestamp(value) {
   return isNaN(d.getTime()) ? null : Timestamp.fromDate(d);
 }
 
+function _toDate(value) {
+  if (!value) return null;
+  if (typeof value.toDate === "function") return value.toDate();
+  if (value instanceof Date) return value;
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 function _serialize(snap) {
   if (!snap || !snap.exists()) return null;
   return { id: snap.id, ...snap.data() };
@@ -83,6 +92,120 @@ function _safeLimit(n) {
 
 function _stripUndef(obj) {
   return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined));
+}
+
+function _getPromoCapacity(promo) {
+  const limiteTotal = Number(promo?.limiteTotal) || 0;
+  if (limiteTotal > 0) return limiteTotal;
+  return Number(promo?.quantidade) || 0;
+}
+
+function _getPromoUsage(promo) {
+  return Number(promo?.utilizacoes ?? promo?.participacoes ?? 0) || 0;
+}
+
+function _matchSelectedProducts(promo, productId) {
+  const selected = Array.isArray(promo?.produtosSelecionados)
+    ? promo.produtosSelecionados.filter(Boolean)
+    : [];
+  if (!selected.length) return true;
+  if (!productId) return true;
+  const target = String(productId);
+  return selected.some((item) => String(item) === target);
+}
+
+function _getPromoDiscountAmount(promo, amount) {
+  const baseAmount = Number(amount || 0);
+  if (!promo || baseAmount <= 0) return 0;
+  const value = Number(promo?.valorDesconto || 0);
+  if (promo?.tipoDesconto === "fixo") {
+    return Math.min(baseAmount, value);
+  }
+  return Math.min(baseAmount, (baseAmount * value) / 100);
+}
+
+function _getUserPromoUsageCount(partSnap, useSnap) {
+  return Math.max(
+    Number(partSnap?.exists?.() ? partSnap.data().count : 0) || 0,
+    Number(useSnap?.exists?.() ? useSnap.data().count : 0) || 0,
+  );
+}
+
+function _buildPromoEligibility(promo, { uid, vipData = null, productId = null, amount = 0, currentUsageCount = 0, now = new Date() } = {}) {
+  if (!promo) return { eligible: false, reason: "Promoção inválida." };
+
+  if (promo.status !== STATUS.ATIVA) {
+    return { eligible: false, reason: `Promoção não está ativa (status: ${promo.status}).` };
+  }
+
+  if (promo.inicio) {
+    const inicio = _toDate(promo.inicio);
+    if (inicio && inicio > now) return { eligible: false, reason: "Promoção ainda não começou." };
+  }
+
+  const end = _toDate(promo.fim ?? promo.dataFinal);
+  if (end && end < now) return { eligible: false, reason: "Promoção expirada." };
+
+  if (promo.dataVip) {
+    const vipDate = _toDate(promo.dataVip);
+    if (vipDate && vipDate > now) {
+      const pubDate = promo.dataPublica ? _toDate(promo.dataPublica) : null;
+      if (!pubDate || pubDate > now) {
+        return { eligible: false, reason: "Promoção ainda não foi liberada." };
+      }
+    }
+  }
+
+  if (!promo.dataVip && promo.dataPublica) {
+    const pubDate = _toDate(promo.dataPublica);
+    if (pubDate && pubDate > now) {
+      if (!_isVipActive(vipData)) {
+        return { eligible: false, reason: "Promoção ainda não liberada ao público." };
+      }
+    }
+  }
+
+  if (promo.vipMinimo > 0) {
+    const vipLevel = _getVipLevel(vipData);
+    if (!_isVipActive(vipData) || vipLevel < Number(promo.vipMinimo)) {
+      return { eligible: false, reason: `Promoção exige VIP nível ${promo.vipMinimo}.` };
+    }
+  }
+
+  if (productId && !_matchSelectedProducts(promo, productId)) {
+    return { eligible: false, reason: "Esta promoção não é válida para este produto." };
+  }
+
+  const qty = _getPromoCapacity(promo);
+  const parts = _getPromoUsage(promo);
+  if (qty > 0 && parts >= qty) {
+    return { eligible: false, reason: "Vagas esgotadas." };
+  }
+
+  const limite = Number(promo.limitePorUsuario) || 1;
+  if (limite > 0 && currentUsageCount >= limite) {
+    return { eligible: false, reason: `Limite atingido: você já utilizou esta promoção ${currentUsageCount}x (máximo: ${limite}x).` };
+  }
+
+  const discountAmount = _getPromoDiscountAmount(promo, amount);
+  const finalAmount = Math.max(0, Number(amount || 0) - discountAmount);
+
+  return {
+    eligible: true,
+    reason: null,
+    discountAmount,
+    finalAmount,
+  };
+}
+
+function _isVipActive(vipData) {
+  return vipData?.vip5Active === true && (!vipData?.vip5ExpiresAt || vipData.vip5ExpiresAt > Date.now());
+}
+
+function _getVipLevel(vipData) {
+  if (!vipData) return 0;
+  const value = Number(vipData.nivelVip ?? vipData.vipNivel ?? vipData.vipLevel ?? vipData.level ?? 0);
+  return Number.isFinite(value) ? value : 0;
 }
 
 /**
@@ -119,22 +242,32 @@ function _validate(payload, isCreate = true) {
     const l = Number(payload.limitePorUsuario);
     if (isNaN(l) || l < 0) errors.push('"limitePorUsuario" deve ser número não-negativo.');
   }
+  if (payload.limiteTotal !== undefined) {
+    const l = Number(payload.limiteTotal);
+    if (isNaN(l) || l < 0) errors.push('"limiteTotal" deve ser número não-negativo.');
+  }
+  if (payload.valorDesconto !== undefined) {
+    const v = Number(payload.valorDesconto);
+    if (isNaN(v) || v < 0) errors.push('"valorDesconto" deve ser número não-negativo.');
+  }
+  if (payload.vipMinimo !== undefined) {
+    const v = Number(payload.vipMinimo);
+    if (isNaN(v) || v < 0) errors.push('"vipMinimo" deve ser número não-negativo.');
+  }
   if (payload.status !== undefined && !Object.values(STATUS).includes(payload.status)) {
     errors.push(`"status" inválido. Use: ${Object.values(STATUS).join(", ")}.`);
   }
 
-  const toDate = (v) => {
-    if (!v) return null;
-    if (typeof v.toDate === "function") return v.toDate();
-    return v instanceof Date ? v : new Date(v);
-  };
-  const vip = toDate(payload.dataVip);
-  const pub = toDate(payload.dataPublica);
-  const end = toDate(payload.dataFinal);
+  const vip = _toDate(payload.dataVip);
+  const pub = _toDate(payload.dataPublica);
+  const end = _toDate(payload.dataFinal);
+  const start = _toDate(payload.inicio);
+  const finish = _toDate(payload.fim);
 
   if (vip && pub && vip > pub)  errors.push('"dataVip" deve ser ≤ "dataPublica".');
   if (pub && end && pub > end)  errors.push('"dataPublica" deve ser ≤ "dataFinal".');
   if (vip && end && vip > end)  errors.push('"dataVip" deve ser ≤ "dataFinal".');
+  if (start && finish && start > finish) errors.push('"inicio" deve ser ≤ "fim".');
 
   if (errors.length > 0) throw new Error(errors.join(" | "));
 }
@@ -214,6 +347,10 @@ export async function createPromotion(payload, admin) {
   try {
     _validate(payload, true);
 
+    const limiteTotal = Number(payload.limiteTotal ?? payload.quantidade ?? 0) || 0;
+    const utilizacoes = Number(payload.utilizacoes) || 0;
+    const restante = limiteTotal > 0 ? Math.max(0, limiteTotal - utilizacoes) : null;
+
     const data = _stripUndef({
       titulo:           String(payload.titulo).trim(),
       descricao:        payload.descricao        ? String(payload.descricao).trim() : "",
@@ -222,7 +359,18 @@ export async function createPromotion(payload, admin) {
       status:           payload.status            || STATUS.PROGRAMADA,
       quantidade:       Number(payload.quantidade)       || 0,
       limitePorUsuario: Number(payload.limitePorUsuario) || 1,
+      limiteTotal,
+      tipoDesconto:     payload.tipoDesconto || "percentual",
+      valorDesconto:    Number(payload.valorDesconto) || 0,
+      inicio:           _toTimestamp(payload.inicio),
+      fim:              _toTimestamp(payload.fim),
+      vipMinimo:        Number(payload.vipMinimo) || 0,
+      permitirCupom:    payload.permitirCupom !== undefined ? Boolean(payload.permitirCupom) : true,
+      produtosSelecionados: Array.isArray(payload.produtosSelecionados) ? payload.produtosSelecionados.filter(Boolean) : [],
       participacoes:    0,
+      utilizacoes,
+      usuariosUsaram:   0,
+      restante,
       dataVip:          _toTimestamp(payload.dataVip),
       dataPublica:      _toTimestamp(payload.dataPublica),
       dataFinal:        _toTimestamp(payload.dataFinal),
@@ -266,6 +414,12 @@ export async function editPromotion(id, changes, admin) {
     if (!snap.exists()) throw new Error(`Promoção não encontrada: "${id}".`);
 
     const before = snap.data();
+    const currentUses = Number(before?.utilizacoes ?? before?.participacoes ?? 0) || 0;
+    const nextLimiteTotal = changes.limiteTotal !== undefined ? Number(changes.limiteTotal) || 0 : undefined;
+    const nextUtilizacoes = changes.utilizacoes !== undefined ? Number(changes.utilizacoes) || 0 : undefined;
+    const nextRemaining = (nextLimiteTotal !== undefined || nextUtilizacoes !== undefined)
+      ? (nextLimiteTotal > 0 ? Math.max(0, nextLimiteTotal - (nextUtilizacoes ?? currentUses)) : null)
+      : undefined;
 
     const update = _stripUndef({
       titulo:           changes.titulo           !== undefined ? String(changes.titulo).trim()    : undefined,
@@ -275,6 +429,16 @@ export async function editPromotion(id, changes, admin) {
       status:           changes.status           !== undefined ? changes.status                   : undefined,
       quantidade:       changes.quantidade       !== undefined ? Number(changes.quantidade)       : undefined,
       limitePorUsuario: changes.limitePorUsuario !== undefined ? Number(changes.limitePorUsuario) : undefined,
+      limiteTotal:      nextLimiteTotal !== undefined ? nextLimiteTotal : undefined,
+      tipoDesconto:     changes.tipoDesconto     !== undefined ? changes.tipoDesconto             : undefined,
+      valorDesconto:    changes.valorDesconto    !== undefined ? Number(changes.valorDesconto)    : undefined,
+      inicio:           changes.inicio           !== undefined ? _toTimestamp(changes.inicio)     : undefined,
+      fim:              changes.fim              !== undefined ? _toTimestamp(changes.fim)        : undefined,
+      vipMinimo:        changes.vipMinimo        !== undefined ? Number(changes.vipMinimo)        : undefined,
+      permitirCupom:    changes.permitirCupom    !== undefined ? Boolean(changes.permitirCupom)  : undefined,
+      produtosSelecionados: changes.produtosSelecionados !== undefined ? (Array.isArray(changes.produtosSelecionados) ? changes.produtosSelecionados.filter(Boolean) : []) : undefined,
+      utilizacoes:      nextUtilizacoes !== undefined ? nextUtilizacoes : undefined,
+      restante:         nextRemaining !== undefined ? nextRemaining : undefined,
       dataVip:          changes.dataVip          !== undefined ? _toTimestamp(changes.dataVip)    : undefined,
       dataPublica:      changes.dataPublica      !== undefined ? _toTimestamp(changes.dataPublica): undefined,
       dataFinal:        changes.dataFinal        !== undefined ? _toTimestamp(changes.dataFinal)  : undefined,
@@ -462,7 +626,7 @@ export async function fetchAllPromotions({ statusFilter = null, limit: lim = DEF
  * @param {number}  [opts.limit=20]
  * @param {DocumentSnapshot|string|null} [opts.startAfter]  — ignorado nesta versão
  */
-export async function fetchVisiblePromotions({ isVip = false, limit: lim = DEF_LIMIT } = {}) {
+export async function fetchVisiblePromotions({ isVip = false, limit: lim = DEF_LIMIT, productId = null } = {}) {
   try {
     const safeLimit = _safeLimit(lim);
     const now       = new Date();
@@ -480,30 +644,31 @@ export async function fetchVisiblePromotions({ isVip = false, limit: lim = DEF_L
     const hasMore  = docs.length > safeLimit;
     const page     = hasMore ? docs.slice(0, safeLimit) : docs;
 
-    const toDate = (v) => {
-      if (!v) return null;
-      if (typeof v.toDate === "function") return v.toDate();
-      return v instanceof Date ? v : new Date(v);
-    };
-
     const items = page
       .map(_serialize)
       .filter((p) => {
         if (!p) return false;
-        // Filtra expiradas
-        const end = toDate(p.dataFinal);
+
+        if (p.inicio) {
+          const inicio = _toDate(p.inicio);
+          if (inicio && inicio > now) return false;
+        }
+
+        const end = _toDate(p.fim ?? p.dataFinal);
         if (end && end < now) return false;
-        // Verifica acesso antecipado VIP
+
+        if (!_matchSelectedProducts(p, productId)) return false;
+
         if (isVip && p.dataVip) {
-          const vipDate = toDate(p.dataVip);
+          const vipDate = _toDate(p.dataVip);
           if (vipDate && vipDate <= now) return true;
         }
-        // Verifica data pública
+
         if (p.dataPublica) {
-          const pubDate = toDate(p.dataPublica);
+          const pubDate = _toDate(p.dataPublica);
           if (pubDate && pubDate <= now) return true;
         }
-        // Sem datas configuradas → visível para todos
+
         if (!p.dataVip && !p.dataPublica) return true;
         return false;
       })
@@ -543,15 +708,15 @@ export async function fetchPromotionById(id) {
  * @param {string} uid
  * @param {object} [vipData]  — { vip5Active: bool, vip5ExpiresAt: number (ms) }
  */
-export async function canParticipate(promoId, uid, vipData = null) {
+export async function canParticipate(promoId, uid, vipData = null, productId = null) {
   try {
     if (!promoId) throw new Error("promoId é obrigatório.");
     if (!uid)     throw new Error("uid é obrigatório.");
 
-    // Lê promoção e participação do usuário em paralelo (2 leituras, sem query)
-    const [promoSnap, partSnap] = await Promise.all([
+    const [promoSnap, partSnap, useSnap] = await Promise.all([
       getDoc(doc(db, COL_PROMOS, promoId)),
       getDoc(doc(db, COL_PARTS, `${promoId}_${uid}`)),
+      getDoc(doc(db, COL_USES, `${promoId}_${uid}`)),
     ]);
 
     if (!promoSnap.exists()) {
@@ -560,59 +725,19 @@ export async function canParticipate(promoId, uid, vipData = null) {
 
     const p   = promoSnap.data();
     const now = new Date();
+    const count = _getUserPromoUsageCount(partSnap, useSnap);
 
-    // Status
-    if (p.status !== STATUS.ATIVA) {
-      return _ok({ canParticipate: false, reason: `Promoção não está ativa (status: ${p.status}).` });
-    }
+    const eligibility = _buildPromoEligibility(p, {
+      uid,
+      vipData,
+      productId,
+      amount: 0,
+      currentUsageCount: count,
+      now,
+    });
 
-    // Expiração
-    if (p.dataFinal) {
-      const end = typeof p.dataFinal.toDate === "function" ? p.dataFinal.toDate() : new Date(p.dataFinal);
-      if (end < now) return _ok({ canParticipate: false, reason: "Promoção expirada." });
-    }
-
-    // Data de acesso VIP antecipado
-    if (p.dataVip) {
-      const vipDate = typeof p.dataVip.toDate === "function" ? p.dataVip.toDate() : new Date(p.dataVip);
-      if (vipDate > now) {
-        const pubDate = p.dataPublica
-          ? (typeof p.dataPublica.toDate === "function" ? p.dataPublica.toDate() : new Date(p.dataPublica))
-          : null;
-        if (!pubDate || pubDate > now) {
-          return _ok({ canParticipate: false, reason: "Promoção ainda não foi liberada." });
-        }
-      }
-    }
-
-    // Data pública (sem dataVip configurado)
-    if (!p.dataVip && p.dataPublica) {
-      const pubDate = typeof p.dataPublica.toDate === "function" ? p.dataPublica.toDate() : new Date(p.dataPublica);
-      if (pubDate > now) {
-        const isVipAtivo = vipData?.vip5Active === true && (!vipData.vip5ExpiresAt || vipData.vip5ExpiresAt > Date.now());
-        if (!isVipAtivo) {
-          return _ok({ canParticipate: false, reason: "Promoção ainda não liberada ao público." });
-        }
-      }
-    }
-
-    // Vagas disponíveis
-    const qty   = Number(p.quantidade) || 0;
-    const parts = Number(p.participacoes) || 0;
-    if (qty > 0 && parts >= qty) {
-      return _ok({ canParticipate: false, reason: "Vagas esgotadas." });
-    }
-
-    // Limite por usuário — leitura direta por doc ID (sem query, sem índice)
-    const limite = Number(p.limitePorUsuario) || 1;
-    if (limite > 0 && partSnap.exists()) {
-      const count = Number(partSnap.data().count) || 0;
-      if (count >= limite) {
-        return _ok({
-          canParticipate: false,
-          reason: `Limite atingido: você já participou ${count}x (máximo: ${limite}x).`,
-        });
-      }
+    if (!eligibility.eligible) {
+      return _ok({ canParticipate: false, reason: eligibility.reason });
     }
 
     return _ok({ canParticipate: true, reason: null });
@@ -634,45 +759,51 @@ export async function canParticipate(promoId, uid, vipData = null) {
  * @param {string} uid
  * @param {object} [extra]  — campos adicionais a salvar (ex: { nome, email })
  */
-export async function registerParticipation(promoId, uid, extra = {}) {
+export async function registerParticipation(promoId, uid, extra = {}, vipData = null) {
   try {
     if (!promoId) throw new Error("promoId é obrigatório.");
     if (!uid)     throw new Error("uid é obrigatório.");
 
     const promoRef = doc(db, COL_PROMOS, promoId);
     const partRef  = doc(db, COL_PARTS, `${promoId}_${uid}`);
+    const useRef   = doc(db, COL_USES, `${promoId}_${uid}`);
     const now      = new Date();
+    const productId = extra?.produtoId ?? extra?.productId ?? null;
 
     await runTransaction(db, async (tx) => {
       const promoSnap = await tx.get(promoRef);
       const partSnap  = await tx.get(partRef);
+      const useSnap   = await tx.get(useRef);
 
       if (!promoSnap.exists()) throw new Error("Promoção não encontrada.");
 
       const p = promoSnap.data();
+      const count = _getUserPromoUsageCount(partSnap, useSnap);
+      const eligibility = _buildPromoEligibility(p, {
+        uid,
+        vipData,
+        productId,
+        amount: 0,
+        currentUsageCount: count,
+        now,
+      });
 
-      if (p.status !== STATUS.ATIVA) {
-        throw new Error(`Promoção não está ativa (status: ${p.status}).`);
+      if (!eligibility.eligible) {
+        throw new Error(eligibility.reason || "Promoção indisponível.");
       }
 
-      if (p.dataFinal) {
-        const end = typeof p.dataFinal.toDate === "function" ? p.dataFinal.toDate() : new Date(p.dataFinal);
-        if (end < now) throw new Error("Promoção expirada.");
-      }
-
-      const qty   = Number(p.quantidade) || 0;
-      const parts = Number(p.participacoes) || 0;
-      if (qty > 0 && parts >= qty) throw new Error("Vagas esgotadas.");
-
-      const limite = Number(p.limitePorUsuario) || 1;
-      const count  = partSnap.exists() ? (Number(partSnap.data().count) || 0) : 0;
-      if (limite > 0 && count >= limite) {
-        throw new Error(`Limite atingido: ${count}/${limite} participações por usuário.`);
-      }
-
+      const qty   = _getPromoCapacity(p);
+      const parts = _getPromoUsage(p);
+      const nextRemaining = qty > 0 ? Math.max(0, qty - (parts + 1)) : null;
+      const nextStatus = (qty > 0 && nextRemaining === 0) ? STATUS.ENCERRADA : p.status;
+      const firstUserUse = !useSnap.exists();
       tx.update(promoRef, {
-        participacoes: increment(1),
-        atualizadoEm:  serverTimestamp(),
+        participacoes:  increment(1),
+        utilizacoes:    increment(1),
+        ...(qty > 0 ? { restante: nextRemaining } : {}),
+        ...(firstUserUse ? { usuariosUsaram: increment(1) } : {}),
+        ...(nextStatus !== p.status ? { status: nextStatus } : {}),
+        atualizadoEm:   serverTimestamp(),
       });
 
       tx.set(partRef, {
@@ -681,6 +812,17 @@ export async function registerParticipation(promoId, uid, extra = {}) {
         count:                count + 1,
         status:               "confirmada",
         criadoEm:             partSnap.exists() ? partSnap.data().criadoEm : serverTimestamp(),
+        ultimaParticipacaoEm: serverTimestamp(),
+        ...extra,
+      });
+
+      tx.set(useRef, {
+        promoId,
+        uid,
+        count:                count + 1,
+        produtoId:            productId || null,
+        status:               "confirmada",
+        criadoEm:             useSnap.exists() ? useSnap.data().criadoEm : serverTimestamp(),
         ultimaParticipacaoEm: serverTimestamp(),
         ...extra,
       });
@@ -698,6 +840,132 @@ export async function registerParticipation(promoId, uid, extra = {}) {
     return _ok({ promoId, uid, participacaoId: `${promoId}_${uid}` });
   } catch (e) {
     return _err("Erro ao registrar participação: " + e.message, e);
+  }
+}
+
+/**
+ * Aplica automaticamente uma promoção a uma compra, registrando uso e atualizando os contadores.
+ *
+ * @param {object} opts
+ * @param {string} opts.uid
+ * @param {string|null} opts.productId
+ * @param {number} opts.amount
+ * @param {object|null} [opts.vipData]
+ * @param {object} [opts.extra]
+ */
+export async function applyPromotionToPurchase({ uid, productId = null, amount = 0, vipData = null, extra = {} } = {}) {
+  try {
+    if (!uid) throw new Error("uid é obrigatório.");
+
+    const baseAmount = Number(amount || 0);
+    if (baseAmount <= 0) {
+      return _ok({ applicable: false, promoId: null, discountAmount: 0, finalAmount: 0, reason: "Valor de compra inválido." });
+    }
+
+    return await runTransaction(db, async (tx) => {
+      const promoQuery = query(collection(db, COL_PROMOS), where("status", "==", STATUS.ATIVA));
+      const promoSnapshot = await tx.get(promoQuery);
+      const promos = promoSnapshot.docs.map((snap) => _serialize(snap)).filter(Boolean);
+
+      const candidates = [];
+      for (const promo of promos) {
+        const useRef = doc(db, COL_USES, `${promo.id}_${uid}`);
+        const partRef = doc(db, COL_PARTS, `${promo.id}_${uid}`);
+        const useSnap = await tx.get(useRef);
+        const partSnap = await tx.get(partRef);
+        const count = _getUserPromoUsageCount(partSnap, useSnap);
+        const eligibility = _buildPromoEligibility(promo, {
+          uid,
+          vipData,
+          productId,
+          amount: baseAmount,
+          currentUsageCount: count,
+          now: new Date(),
+        });
+
+        if (eligibility.eligible) {
+          candidates.push({
+            ...promo,
+            ...eligibility,
+          });
+        }
+      }
+
+      if (!candidates.length) {
+        return _ok({ applicable: false, promoId: null, discountAmount: 0, finalAmount: baseAmount, reason: "Nenhuma promoção aplicável no momento." });
+      }
+
+      const selected = candidates
+        .sort((a, b) => (b.discountAmount - a.discountAmount) || (_toMs(b.criadoEm) - _toMs(a.criadoEm)))[0];
+
+      const useRef = doc(db, COL_USES, `${selected.id}_${uid}`);
+      const partRef = doc(db, COL_PARTS, `${selected.id}_${uid}`);
+      const useSnap = await tx.get(useRef);
+      const partSnap = await tx.get(partRef);
+      const count = _getUserPromoUsageCount(partSnap, useSnap);
+      const postEligibility = _buildPromoEligibility(selected, {
+        uid,
+        vipData,
+        productId,
+        amount: baseAmount,
+        currentUsageCount: count,
+        now: new Date(),
+      });
+
+      if (!postEligibility.eligible) {
+        return _ok({ applicable: false, promoId: null, discountAmount: 0, finalAmount: baseAmount, reason: postEligibility.reason || "Promoção indisponível no momento." });
+      }
+
+      const promoRef = doc(db, COL_PROMOS, selected.id);
+      const promoSnap = await tx.get(promoRef);
+      const promoData = promoSnap.data() || {};
+      const qty = _getPromoCapacity(promoData);
+      const parts = _getPromoUsage(promoData);
+      const nextRemaining = qty > 0 ? Math.max(0, qty - (parts + 1)) : null;
+      const nextStatus = (qty > 0 && nextRemaining === 0) ? STATUS.ENCERRADA : promoData.status;
+      const firstUserUse = !useSnap.exists();
+
+      tx.update(promoRef, {
+        participacoes:  increment(1),
+        utilizacoes:    increment(1),
+        ...(qty > 0 ? { restante: nextRemaining } : {}),
+        ...(firstUserUse ? { usuariosUsaram: increment(1) } : {}),
+        ...(nextStatus !== promoData.status ? { status: nextStatus } : {}),
+        atualizadoEm:   serverTimestamp(),
+      });
+
+      tx.set(partRef, {
+        promoId: selected.id,
+        uid,
+        count: count + 1,
+        status: "confirmada",
+        criadoEm: partSnap.exists() ? partSnap.data().criadoEm : serverTimestamp(),
+        ultimaParticipacaoEm: serverTimestamp(),
+        produtoId: productId || null,
+        ...extra,
+      });
+
+      tx.set(useRef, {
+        promoId: selected.id,
+        uid,
+        count: count + 1,
+        produtoId: productId || null,
+        status: "confirmada",
+        criadoEm: useSnap.exists() ? useSnap.data().criadoEm : serverTimestamp(),
+        ultimaParticipacaoEm: serverTimestamp(),
+        ...extra,
+      });
+
+      return _ok({
+        applicable: true,
+        promoId: selected.id,
+        discountAmount: postEligibility.discountAmount,
+        finalAmount: postEligibility.finalAmount,
+        reason: null,
+      });
+    });
+  } catch (e) {
+    return _err("Erro ao aplicar promoção na compra: " + e.message, e);
   }
 }
 

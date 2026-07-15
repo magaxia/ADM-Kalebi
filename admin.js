@@ -4,6 +4,7 @@ import {
   collection,
   doc,
   getDocs,
+  getDoc,
   setDoc,
   updateDoc,
   deleteDoc,
@@ -69,6 +70,8 @@ let promosPage       = 1;
 let promoStatusFilter = "";
 let allProdutosAntecipados = [];
 let produtosSearchTerm = "";
+let selectedPromoProdutoIds = [];
+let promoEditId = null;
 
 // ── Estado: Sorteios VIP ──────────────────────────────────────────────────────
 let allSorteios = [];
@@ -134,6 +137,114 @@ async function fetchPromotions() {
     console.error("[ADMIN] Erro ao buscar promoções:", result.error);
     allPromos = [];
   }
+}
+
+async function fetchProdutosAntecipadosForPromo() {
+  try {
+    const snap = await getDocs(collection(db, PRODUTOS_ANTECIPADOS_COL));
+    allProdutosAntecipados = snap.docs
+      .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+      .sort((a, b) => String(a.nome || a.titulo || "").localeCompare(String(b.nome || b.titulo || "")));
+    renderProdutosSelecionaveis();
+  } catch (err) {
+    console.error("[ADMIN] Erro ao buscar produtos para promoção:", err);
+    allProdutosAntecipados = [];
+    renderProdutosSelecionaveis();
+  }
+}
+
+function renderProdutosSelecionaveis() {
+  const container = document.getElementById("promo-produtos-list");
+  if (!container) return;
+
+  if (!allProdutosAntecipados.length) {
+    container.innerHTML = '<div style="color:#777;font-size:13px">Nenhum produto disponível para seleção.</div>';
+    return;
+  }
+
+  container.innerHTML = allProdutosAntecipados.map((produto) => {
+    const id = produto.id;
+    const nome = produto.nome || produto.titulo || id;
+    const checked = selectedPromoProdutoIds.includes(id) ? "checked" : "";
+    return `
+      <label style="display:flex;align-items:center;gap:8px;padding:10px;border:1px solid var(--border2);border-radius:8px;background:var(--surface);cursor:pointer">
+        <input type="checkbox" value="${id}" ${checked} onchange="togglePromoProdutoSelection('${id}', this.checked)" />
+        <span>${nome}</span>
+      </label>`;
+  }).join("");
+}
+
+window.togglePromoProdutoSelection = function (produtoId, checked) {
+  if (checked) {
+    if (!selectedPromoProdutoIds.includes(produtoId)) selectedPromoProdutoIds.push(produtoId);
+  } else {
+    selectedPromoProdutoIds = selectedPromoProdutoIds.filter((id) => id !== produtoId);
+  }
+};
+
+window.cancelPromoEdit = function () {
+  promoEditId = null;
+  selectedPromoProdutoIds = [];
+  document.getElementById("promo-id-edit").value = "";
+  document.getElementById("promo-form").reset();
+  document.getElementById("promo-btn").textContent = "Criar promoção";
+  document.getElementById("promo-cancel-edit").style.display = "none";
+  document.getElementById("promo-status").textContent = "";
+  document.getElementById("promo-qty").value = "0";
+  document.getElementById("promo-limite").value = "1";
+  document.getElementById("promo-valor-desconto").value = "0";
+  document.getElementById("promo-limite-total").value = "0";
+  document.getElementById("promo-vip-minimo").value = "0";
+  document.getElementById("promo-tipo-desconto").value = "percentual";
+  document.getElementById("promo-permitir-cupom").value = "true";
+  document.getElementById("promo-status-sel").value = "programada";
+  renderProdutosSelecionaveis();
+};
+
+window.editPromoAdmin = async function (promoId) {
+  const promo = allPromos.find((item) => item.id === promoId);
+  if (!promo) return;
+  promoEditId = promoId;
+  selectedPromoProdutoIds = Array.isArray(promo.produtosSelecionados) ? promo.produtosSelecionados.slice() : [];
+
+  document.getElementById("promo-id-edit").value = promoId;
+  document.getElementById("promo-titulo").value = promo.titulo || "";
+  document.getElementById("promo-descricao").value = promo.descricao || "";
+  document.getElementById("promo-qty").value = promo.quantidade || "0";
+  document.getElementById("promo-limite").value = promo.limitePorUsuario || "1";
+  document.getElementById("promo-limite-total").value = promo.limiteTotal || "0";
+  document.getElementById("promo-valor-desconto").value = promo.valorDesconto || "0";
+  document.getElementById("promo-tipo-desconto").value = promo.tipoDesconto || "percentual";
+  document.getElementById("promo-inicio").value = promo.inicio ? toInputDatetime(promo.inicio) : "";
+  document.getElementById("promo-fim").value = promo.fim ? toInputDatetime(promo.fim) : "";
+  document.getElementById("promo-data-vip").value = promo.dataVip ? toInputDatetime(promo.dataVip) : "";
+  document.getElementById("promo-data-publica").value = promo.dataPublica ? toInputDatetime(promo.dataPublica) : "";
+  document.getElementById("promo-data-final").value = promo.dataFinal ? toInputDatetime(promo.dataFinal) : "";
+  document.getElementById("promo-vip-minimo").value = promo.vipMinimo || "0";
+  document.getElementById("promo-permitir-cupom").value = promo.permitirCupom === false ? "false" : "true";
+  document.getElementById("promo-status-sel").value = promo.status || "programada";
+  document.getElementById("promo-inicio").value = promo.inicio ? toInputDatetime(promo.inicio) : "";
+  document.getElementById("promo-fim").value = promo.fim ? toInputDatetime(promo.fim) : "";
+  document.getElementById("promo-data-vip").value = promo.dataVip ? toInputDatetime(promo.dataVip) : "";
+  document.getElementById("promo-data-publica").value = promo.dataPublica ? toInputDatetime(promo.dataPublica) : "";
+  document.getElementById("promo-data-final").value = promo.dataFinal ? toInputDatetime(promo.dataFinal) : "";
+  document.getElementById("promo-btn").textContent = "Salvar edição";
+  document.getElementById("promo-cancel-edit").style.display = "inline-block";
+  renderProdutosSelecionaveis();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+};
+
+function toInputDatetime(value) {
+  if (!value) return "";
+  if (typeof value.toDate === "function") {
+    const d = value.toDate();
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 // ─── Renderização: Estatísticas ───────────────────────────────────────────────
@@ -240,7 +351,7 @@ function renderPromotions() {
   const tbody = document.getElementById("promos-tbody");
 
   if (allPromos.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#555;padding:24px">Nenhuma promoção encontrada.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#555;padding:24px">Nenhuma promoção encontrada.</td></tr>`;
     document.getElementById("promos-pagination").textContent = "";
     return;
   }
@@ -252,40 +363,61 @@ function renderPromotions() {
     programada: { cls: "badge-programada", txt: "Programada" },
   };
 
+  const descontoLabel = (p) => {
+    if (p.tipoDesconto === "fixo") {
+      return `R$ ${Number(p.valorDesconto || 0).toFixed(2)}`;
+    }
+    return `${Number(p.valorDesconto || 0).toFixed(0)}%`;
+  };
+
   const toDate = (v) => {
     if (!v) return null;
     if (typeof v.toDate === "function") return v.toDate();
     return v instanceof Date ? v : new Date(v);
   };
 
-  tbody.innerHTML = page.map(p => {
-    const s       = statusLabel[p.status] || { cls: "", txt: p.status };
-    const qty     = Number(p.quantidade) || 0;
-    const parts   = Number(p.participacoes) || 0;
-    const vagas   = qty === 0 ? `${parts} / ∞` : `${parts} / ${qty}`;
-    const dataFim = toDate(p.dataFinal);
-    const dataStr = dataFim ? fmtDate(dataFim) : "—";
+  const usageSummary = (p) => {
+    const totalLimit = Number(p.limiteTotal || 0);
+    const qty = Number(p.quantidade || 0);
+    const uses = Number(p.utilizacoes || p.participacoes || 0);
+    const remaining = totalLimit > 0 ? Math.max(0, totalLimit - uses) : (qty === 0 ? "∞" : Math.max(0, qty - uses));
+    const usedBy = Number(p.usuariosUsaram || 0);
+    return {
+      used: uses,
+      remaining,
+      usedBy,
+      cap: totalLimit > 0 ? totalLimit : qty === 0 ? "∞" : qty,
+    };
+  };
 
-    const btnAtivar  = p.status !== PROMO_STATUS.ATIVA
+  tbody.innerHTML = page.map(p => {
+    const s = statusLabel[p.status] || { cls: "", txt: p.status };
+    const summary = usageSummary(p);
+    const dataFim = toDate(p.dataFinal || p.fim || p.dataFim);
+    const dataStr = dataFim ? fmtDate(dataFim) : "—";
+    const btnAtivar = p.status !== PROMO_STATUS.ATIVA
       ? `<button class="btn-sm btn-reset" onclick="activatePromo('${p.id}')">Ativar</button>`
       : "";
-    const btnPausar  = p.status === PROMO_STATUS.ATIVA
+    const btnPausar = p.status === PROMO_STATUS.ATIVA
       ? `<button class="btn-sm btn-blue" onclick="pausePromo('${p.id}')">Pausar</button>`
       : "";
     const btnEncerrar = (p.status === PROMO_STATUS.ATIVA || p.status === PROMO_STATUS.PAUSADA)
       ? `<button class="btn-sm btn-delete" style="background:#2a1e3a;color:#9b59b6" onclick="endPromo('${p.id}')">Encerrar</button>`
       : "";
+    const btnEditar = `<button class="btn-sm btn-reset" onclick="editPromoAdmin('${p.id}')">Editar</button>`;
     const btnExcluir = `<button class="btn-sm btn-delete" onclick="deletePromoAdmin('${p.id}')">Excluir</button>`;
 
     return `
       <tr>
         <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.titulo || "—"}</td>
         <td><span class="badge ${s.cls}">${s.txt}</span></td>
-        <td class="mono small">${vagas}</td>
+        <td class="mono small">${summary.used}/${summary.cap}</td>
+        <td class="mono small">${summary.remaining}</td>
+        <td class="small">${summary.usedBy}</td>
         <td class="small">${dataStr}</td>
-        <td class="small">${p.limitePorUsuario ?? 1}x/usuário</td>
+        <td class="small">${descontoLabel(p)}</td>
         <td class="actions">
-          ${btnAtivar}${btnPausar}${btnEncerrar}${btnExcluir}
+          ${btnEditar}${btnAtivar}${btnPausar}${btnEncerrar}${btnExcluir}
         </td>
       </tr>`;
   }).join("");
@@ -1017,10 +1149,25 @@ window.renewUser = async function (uid, days) {
       : Date.now();
     const newExpires = base + days * 24 * 60 * 60 * 1000;
     console.log("[ADMIN] Renovando VIP uid=" + uid + " +" + days + "d");
-    await updateDoc(doc(db, USERS_COL, uid), {
+    const userRef = doc(db, USERS_COL, uid);
+    try {
+      const before = await getDoc(userRef);
+      console.trace('[TRACE] renewUser before write', { uid });
+      console.log('[TRACE] renewUser before vip5Active:', before.exists() ? before.data().vip5Active : undefined);
+    } catch (e) {
+      console.warn('[TRACE] renewUser before read failed', e);
+    }
+    await updateDoc(userRef, {
       vip5Active:    true,
       vip5ExpiresAt: newExpires
     });
+    try {
+      const after = await getDoc(userRef);
+      console.log('[TRACE] renewUser after vip5Active:', after.exists() ? after.data().vip5Active : undefined);
+      console.trace('[TRACE] renewUser write stack');
+    } catch (e) {
+      console.warn('[TRACE] renewUser after read failed', e);
+    }
     await refresh();
   } catch (err) {
     console.error("[ADMIN] Erro ao renovar:", err.code, err.message, err);
@@ -1032,7 +1179,22 @@ window.removeUserVip = async function (uid) {
   if (!confirm(`Remover VIP do usuário ${uid}?`)) return;
   try {
     console.log("[ADMIN] Removendo VIP uid=" + uid);
-    await updateDoc(doc(db, USERS_COL, uid), { vip5Active: false });
+    const userRef = doc(db, USERS_COL, uid);
+    console.trace('[TRACE] removeUserVip entry', { uid });
+    try {
+      const before = await getDoc(userRef);
+      console.log('[TRACE] removeUserVip before vip5Active:', before.exists() ? before.data().vip5Active : undefined);
+    } catch (e) {
+      console.warn('[TRACE] removeUserVip before read failed', e);
+    }
+    await updateDoc(userRef, { vip5Active: false });
+    try {
+      const after = await getDoc(userRef);
+      console.log('[TRACE] removeUserVip after vip5Active:', after.exists() ? after.data().vip5Active : undefined);
+      console.trace('[TRACE] removeUserVip write stack');
+    } catch (e) {
+      console.warn('[TRACE] removeUserVip after read failed', e);
+    }
     await refresh();
   } catch (err) {
     console.error("[ADMIN] Erro ao remover VIP:", err.code, err.message, err);
@@ -1456,53 +1618,68 @@ async function handleCreatePromo(e) {
   const titulo    = document.getElementById("promo-titulo").value.trim();
   const qty       = parseInt(document.getElementById("promo-qty").value, 10) || 0;
   const limite    = parseInt(document.getElementById("promo-limite").value, 10) || 1;
+  const limiteTotal = parseInt(document.getElementById("promo-limite-total").value, 10) || 0;
   const dataVip   = document.getElementById("promo-data-vip").value;
   const dataPub   = document.getElementById("promo-data-publica").value;
   const dataFim   = document.getElementById("promo-data-final").value;
+  const inicio    = document.getElementById("promo-inicio").value;
+  const fim       = document.getElementById("promo-fim").value;
   const statusSel = document.getElementById("promo-status-sel").value;
   const statusEl  = document.getElementById("promo-status");
+  const descricao = document.getElementById("promo-descricao").value.trim();
+  const tipoDesconto = document.getElementById("promo-tipo-desconto").value;
+  const valorDesconto = parseFloat(document.getElementById("promo-valor-desconto").value) || 0;
+  const vipMinimo = parseInt(document.getElementById("promo-vip-minimo").value, 10) || 0;
+  const permitirCupom = document.getElementById("promo-permitir-cupom").value === "true";
 
   if (!titulo) { alert("Título é obrigatório."); return; }
 
   const btn = document.getElementById("promo-btn");
   btn.disabled    = true;
-  btn.textContent = "Criando...";
+  btn.textContent = promoEditId ? "Salvando..." : "Criando...";
   statusEl.textContent = "";
 
   const payload = {
     titulo,
+    descricao,
     quantidade:       qty,
     limitePorUsuario: limite,
+    limiteTotal,
+    tipoDesconto,
+    valorDesconto,
+    inicio:           inicio ? new Date(inicio) : null,
+    fim:              fim ? new Date(fim) : null,
     status:           statusSel || "programada",
     dataVip:          dataVip   ? new Date(dataVip)   : null,
     dataPublica:      dataPub   ? new Date(dataPub)   : null,
     dataFinal:        dataFim   ? new Date(dataFim)   : null,
+    vipMinimo,
+    permitirCupom,
+    produtosSelecionados: selectedPromoProdutoIds,
   };
 
   try {
-    const result = await createPromotion(payload, null);
-    if (!result.success) throw new Error(result.error);
+    let result;
+    if (promoEditId) {
+      result = await editPromotion(promoEditId, payload, null);
+      if (!result.success) throw new Error(result.error);
+      statusEl.textContent = `✓ Promoção "${titulo}" atualizada!`;
+    } else {
+      result = await createPromotion(payload, null);
+      if (!result.success) throw new Error(result.error);
+      statusEl.textContent = `✓ Promoção "${titulo}" criada!`;
+    }
 
-    console.log("[ADMIN] Promoção criada:", result.data.id);
-    statusEl.textContent = `✓ Promoção "${titulo}" criada!`;
     statusEl.style.color = "#27ae60";
-
-    document.getElementById("promo-titulo").value        = "";
-    document.getElementById("promo-qty").value           = "0";
-    document.getElementById("promo-limite").value        = "1";
-    document.getElementById("promo-data-vip").value      = "";
-    document.getElementById("promo-data-publica").value  = "";
-    document.getElementById("promo-data-final").value    = "";
-    document.getElementById("promo-status-sel").value    = "programada";
-
     await refresh();
+    cancelPromoEdit();
   } catch (err) {
-    console.error("[ADMIN] Erro ao criar promoção:", err.message, err);
+    console.error("[ADMIN] Erro ao processar promoção:", err.message, err);
     statusEl.textContent = "Erro: " + err.message;
     statusEl.style.color = "#e74c3c";
   } finally {
     btn.disabled    = false;
-    btn.textContent = "Criar promoção";
+    btn.textContent = promoEditId ? "Salvar edição" : "Criar promoção";
   }
 }
 
