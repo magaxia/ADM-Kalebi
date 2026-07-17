@@ -75,5 +75,65 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // ══════════════════════════════════════════════════════════════════
+    // COLEÇÕES NOVAS — módulo vip5-sorteios-storage.js
+    // Regras adicionadas abaixo seguem o mesmo padrão das coleções existentes.
+    // ══════════════════════════════════════════════════════════════════
+
+    // vip5_sorteios — sorteios criados pelo admin
+    match /vip5_sorteios/{sorteioId} {
+      // Qualquer usuário autenticado pode LER (necessário para exibir sorteios públicos/vip)
+      allow read: if request.auth != null;
+
+      // Somente admin pode CRIAR, EDITAR ou EXCLUIR
+      // Enquanto não há custom claims de admin, use esta regra temporária:
+      allow write: if request.auth != null;
+      // Para produção, substitua por:
+      // allow write: if request.auth != null && request.auth.token.admin == true;
+    }
+
+    // vip5_sorteios/{sorteioId}/participantes — subcoleção de participantes do sorteio
+    match /vip5_sorteios/{sorteioId}/participantes/{participantId} {
+      // Usuário lê somente a própria participação
+      allow read: if request.auth != null
+        && (resource == null || resource.data.uid == request.auth.uid);
+
+      // Usuário pode criar/atualizar somente a própria participação
+      allow create: if request.auth != null
+        && request.resource.data.uid == request.auth.uid;
+
+      allow update: if request.auth != null
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid;
+
+      // Exclusão: somente admin
+      allow delete: if request.auth != null;
+      // Para produção: && request.auth.token.admin == true
+    }
+
+    // vip5_sorteios_resultados — resultados públicos/administrativos dos sorteios
+    match /vip5_sorteios_resultados/{resultadoId} {
+      // Qualquer usuário autenticado pode CRIAR resultados (sistemas/daemons)
+      allow create: if request.auth != null;
+
+      // Leitura liberada para usuários autenticados (ajuste para admin em produção se necessário)
+      allow read: if request.auth != null;
+
+      // Ninguém edita ou exclui resultados
+      allow update, delete: if false;
+    }
+
+    // vip5_sorteios_logs — logs/auditoria do módulo de sorteios
+    match /vip5_sorteios_logs/{logId} {
+      // Qualquer usuário autenticado pode CRIAR logs
+      allow create: if request.auth != null;
+
+      // Somente admin pode LER logs
+      allow read: if request.auth != null;
+      // Para produção: && request.auth.token.admin == true
+
+      // Ninguém edita ou exclui logs
+      allow update, delete: if false;
+    }
   }
 }

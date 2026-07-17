@@ -11,6 +11,7 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
+  writeBatch,
   runTransaction,
   serverTimestamp,
   increment,
@@ -20,6 +21,7 @@ import {
 
 const COL_SORTEIOS = "vip5_sorteios";
 const COL_LOGS = "vip5_sorteios_logs";
+const COL_RESULTS = "vip5_sorteios_resultados";
 const SUB_PARTICIPANTS = "participantes";
 const MODULE = "vip5_sorteios";
 const DEF_LIMIT = 20;
@@ -413,6 +415,26 @@ export async function editSorteio(id, changes, admin = {}) {
   }
 }
 
+async function _deleteCollectionDocuments(collectionOrQueryRef) {
+  const snapshot = await getDocs(collectionOrQueryRef);
+  if (snapshot.empty) return;
+
+  let batch = writeBatch(db);
+  let count = 0;
+  for (const docSnap of snapshot.docs) {
+    batch.delete(docSnap.ref);
+    count++;
+    if (count === 500) {
+      await batch.commit();
+      batch = writeBatch(db);
+      count = 0;
+    }
+  }
+  if (count > 0) {
+    await batch.commit();
+  }
+}
+
 export async function deleteSorteio(id, admin = {}) {
   try {
     if (!_isString(id)) {
@@ -420,8 +442,8 @@ export async function deleteSorteio(id, admin = {}) {
     }
 
     let before = null;
+    const sorteioRef = doc(db, COL_SORTEIOS, id);
     await runTransaction(db, async (transaction) => {
-      const sorteioRef = doc(db, COL_SORTEIOS, id);
       const snapshot = await transaction.get(sorteioRef);
       if (!snapshot.exists()) {
         throw new Error(`Sorteio não encontrado: "${id}".`);
@@ -429,6 +451,10 @@ export async function deleteSorteio(id, admin = {}) {
       before = snapshot.data();
       transaction.delete(sorteioRef);
     });
+
+    await _deleteCollectionDocuments(_participantCollectionRef(id));
+    await _deleteCollectionDocuments(query(collection(db, COL_RESULTS), where("sorteioId", "==", id)));
+    await _deleteCollectionDocuments(query(collection(db, COL_LOGS), where("sorteioId", "==", id)));
 
     await _writeLog({
       action: "sorteio_delete",
@@ -459,8 +485,15 @@ export async function duplicateSorteio(id, admin = {}) {
 
     const original = originalSnap.data();
     const copy = _stripUndefined({
-      ...original,
-      titulo: `${original.titulo || "(Sem título)"} (Cópia)`,
+      titulo: original.titulo,
+      descricao: original.descricao,
+      imagem: original.imagem,
+      tipoSorteio: original.tipoSorteio,
+      quantidade: original.quantidade ?? 0,
+      limitePorUsuario: original.limitePorUsuario ?? DEFAULT_USER_LIMIT,
+      dataVip: original.dataVip,
+      dataPublica: original.dataPublica,
+      dataFinal: original.dataFinal,
       status: STATUS.PROGRAMADA,
       participacoesCount: 0,
       createdBy: {
@@ -552,16 +585,16 @@ export async function fetchVisibleSorteios({ isVip = false, limit: lim = DEF_LIM
         const vipDate = _toDate(sorteio.dataVip);
         const publicDate = _toDate(sorteio.dataPublica);
 
-        if (vipDate && vipDate <= now) {
+        const isPublicVisible = publicDate && publicDate <= now;
+        const isVipVisible = vipDate && vipDate <= now && (!publicDate || publicDate > now);
+
+        if (isPublicVisible) {
           return true;
         }
-        if (publicDate && publicDate <= now) {
-          return true;
+        if (isVipVisible) {
+          return isVip;
         }
         if (!vipDate && !publicDate) {
-          return true;
-        }
-        if (isVip && vipDate && vipDate <= now) {
           return true;
         }
         return false;
@@ -730,16 +763,92 @@ export async function registerParticipation(sorteioId, uid, extra = {}) {
   }
 }
 
-export async function fetchParticipations(sorteioId, { limit: lim = DEF_LIMIT } = {}) {
+function _randomItem(items) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return null;
+  }
+  return items[Math.floor(Math.random() * items.length)];
+}
+
+export async function pickSorteioWinner(sorteioId, admin = {}) {
+  try {
+    if (!_isString(sorteioId)) {
+      throw new Error("ID do sorteio é obrigatório.");
+    }
+
+    const sorteioRef = doc(db, COL_SORTEIOS, sorteioId);
+    const sorteioSnap = await getDoc(sorteioRef);
+    if (!sorteioSnap.exists()) {
+      throw new Error("Sorteio não encontrado.");
+    }
+
+    const participantsSnap = await getDocs(_participantCollectionRef(sorteioId));
+    const participants = participantsSnap.docs
+      .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+      .filter((p) => p && p.uid);
+
+    if (!participants.length) {
+      throw new Error("Nenhum participante encontrado para este sorteio.");
+    }
+
+    const winner = _randomItem(participants);
+    if (!winner) {
+      throw new Error("Não foi possível sortear um vencedor.");
+    }
+
+    const winnerData = _stripUndefined({
+      id: winner.id || null,
+      uid: winner.uid || null,
+      count: _toNonNegativeInteger(winner.count, 0),
+      status: winner.status || null,
+      lastParticipationAt: winner.lastParticipationAt || null,
+      selectedAt: serverTimestamp(),
+    });
+
+    await updateDoc(sorteioRef, {
+      winner: winnerData,
+      updatedAt: serverTimestamp(),
+    });
+
+    const resultRef = doc(collection(db, COL_RESULTS));
+    await setDoc(resultRef, _stripUndefined({
+      sorteioId,
+      winner: winnerData,
+      createdAt: serverTimestamp(),
+      selectedBy: {
+        uid: admin?.uid || null,
+        email: admin?.email || null,
+      },
+    }));
+
+    await _writeLog({
+      action: "sorteio_draw_winner",
+      sorteioId,
+      after: { winner: winnerData },
+      uid: admin?.uid || null,
+      message: `Vencedor sorteado para o sorteio "${sorteioId}": ${winnerData.uid}`,
+    });
+
+    return _ok({ id: sorteioId, winner: winnerData });
+  } catch (error) {
+    return _err("Erro ao sortear vencedor: " + error.message, error);
+  }
+}
+
+export async function fetchSorteioResults(sorteioId, { limit: lim = DEF_LIMIT } = {}) {
   try {
     if (!_isString(sorteioId)) {
       throw new Error("sorteioId é obrigatório.");
     }
 
     const safeLimit = _safeLimit(lim);
-    const participantsCollection = _participantCollectionRef(sorteioId);
-    const participantsQuery = query(participantsCollection, orderBy("createdAt", "desc"), limit(safeLimit + 1));
-    const snapshot = await getDocs(participantsQuery);
+    const resultsQuery = query(
+      collection(db, COL_RESULTS),
+      where("sorteioId", "==", sorteioId),
+      orderBy("createdAt", "desc"),
+      limit(safeLimit + 1)
+    );
+    const snapshot = await getDocs(resultsQuery);
     const docs = snapshot.docs;
     const hasMore = docs.length > safeLimit;
     const page = hasMore ? docs.slice(0, safeLimit) : docs;
@@ -751,7 +860,7 @@ export async function fetchParticipations(sorteioId, { limit: lim = DEF_LIMIT } 
 
     return _ok({ items, hasMore, lastDoc: page.length > 0 ? page[page.length - 1] : null });
   } catch (error) {
-    return _err("Erro ao listar participações: " + error.message, error);
+    return _err("Erro ao listar resultados: " + error.message, error);
   }
 }
 
@@ -795,7 +904,8 @@ const Vip5SorteiosStorage = Object.freeze({
   fetchSorteioById,
   canParticipate,
   registerParticipation,
-  fetchParticipations,
+  pickSorteioWinner,
+  fetchSorteioResults,
   fetchLogs,
 });
 

@@ -44,6 +44,8 @@ import {
   activateSorteio,
   endSorteio,
   fetchAllSorteios,
+  pickSorteioWinner,
+  fetchSorteioResults,
 } from "./vip5-sorteios-storage.js";
 
 console.log("[ADMIN] admin.js carregado.");
@@ -88,6 +90,7 @@ let selectedImageFile = null;
 let selectedImagePreviewUrl = null;
 let currentParticipants = [];
 let selectedSorteioWinner = null;
+let selectedSorteioResults = [];
 
 // ─── Geração de código aleatório ─────────────────────────────────────────────
 function randomSegment(len = 8) {
@@ -521,6 +524,10 @@ function _toNonNegativeInteger(value, fallback = 0) {
   return Math.floor(number);
 }
 
+function _isString(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
 function _timestampToMillis(value) {
   if (!value) {
     return 0;
@@ -611,7 +618,8 @@ function renderSorteios() {
     }[sorteio.status] || { cls: "", txt: sorteio.status || "—" };
 
     const participantsCount = _toNonNegativeInteger(sorteio.participacoesCount, 0);
-    const winner = selectedSorteioId === sorteio.id && selectedSorteioWinner ? selectedSorteioWinner.uid || selectedSorteioWinner.id : "—";
+    const winner = (sorteio.winner && (sorteio.winner.uid || sorteio.winner.id)) ||
+      (selectedSorteioId === sorteio.id && selectedSorteioWinner ? selectedSorteioWinner.uid || selectedSorteioWinner.id : "—");
     const btnActivate = sorteio.status !== "ativa" ? `<button class="btn-sm btn-reset" onclick="activateSorteioAdmin('${sorteio.id}')">Ativar</button>` : "";
     const btnPause = sorteio.status === "ativa" ? `<button class="btn-sm btn-blue" onclick="pauseSorteioAdmin('${sorteio.id}')">Pausar</button>` : "";
     const btnEnd = (sorteio.status === "ativa" || sorteio.status === "pausada") ? `<button class="btn-sm btn-delete" onclick="endSorteioAdmin('${sorteio.id}')">Encerrar</button>` : "";
@@ -659,7 +667,8 @@ function renderSorteioDetails() {
   if (titleEl) titleEl.textContent = selectedSorteio.titulo || "Sorteio selecionado";
   if (statusEl) statusEl.textContent = selectedSorteio.status || "—";
   if (participantsEl) participantsEl.textContent = _toNonNegativeInteger(selectedSorteio.participacoesCount, 0);
-  if (winnerEl) winnerEl.textContent = selectedSorteioWinner ? (selectedSorteioWinner.uid || selectedSorteioWinner.id || "—") : "Ainda não sorteado";
+  const winnerData = selectedSorteioWinner || selectedSorteio.winner || null;
+  if (winnerEl) winnerEl.textContent = winnerData ? (winnerData.uid || winnerData.id || "—") : "Ainda não sorteado";
   if (datesEl) datesEl.textContent = _renderSorteioDates(selectedSorteio);
 }
 
@@ -683,6 +692,30 @@ function renderParticipants() {
         <td>${_toNonNegativeInteger(participant.count, 0)}</td>
         <td>${participant.status || "—"}</td>
         <td>${_formatDateValue(createdAt)}</td>
+      </tr>`;
+  }).join("");
+}
+
+function renderSorteioResults() {
+  const tbody = document.getElementById("sorteio-results-tbody");
+  if (!selectedSorteio) {
+    tbody.innerHTML = `<tr><td colspan="3" style="text-align:center;color:#555;padding:24px">Selecione um sorteio para ver o histórico de resultados.</td></tr>`;
+    return;
+  }
+
+  if (!selectedSorteioResults || selectedSorteioResults.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="3" style="text-align:center;color:#555;padding:24px">Nenhum resultado registrado para este sorteio.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = selectedSorteioResults.map((result) => {
+    const winnerUid = result.winner?.uid || result.winner?.id || "—";
+    const selectedBy = result.selectedBy?.email || result.selectedBy?.uid || "—";
+    return `
+      <tr>
+        <td>${_formatDateValue(result.createdAt)}</td>
+        <td class="mono small">${winnerUid}</td>
+        <td>${selectedBy}</td>
       </tr>`;
   }).join("");
 }
@@ -730,8 +763,30 @@ function subscribeSorteioRealtime(id) {
 function selectSorteio(id) {
   selectedSorteioId = id;
   selectedSorteioWinner = null;
+  selectedSorteioResults = [];
   renderSorteios();
   subscribeSorteioRealtime(id);
+  fetchSelectedSorteioResults(id);
+}
+
+async function fetchSelectedSorteioResults(id) {
+  if (!_isString(id)) {
+    selectedSorteioResults = [];
+    renderSorteioResults();
+    return;
+  }
+
+  try {
+    const result = await fetchSorteioResults(id, { limit: 20 });
+    if (!result.success) {
+      throw new Error(result.error || "Falha ao buscar histórico de resultados.");
+    }
+    selectedSorteioResults = result.data.items || [];
+  } catch (error) {
+    console.error("[ADMIN] Erro ao carregar histórico de resultados:", error);
+    selectedSorteioResults = [];
+  }
+  renderSorteioResults();
 }
 
 function loadSorteioForm(sorteio = null) {
@@ -865,10 +920,12 @@ window.loadSorteioForEdit = function (id) {
 window.resetSorteioForm = function () {
   loadSorteioForm(null);
   selectedSorteioWinner = null;
+  selectedSorteioResults = [];
   _unsubscribeSorteioListeners();
   currentParticipants = [];
   renderParticipants();
   renderSorteioDetails();
+  renderSorteioResults();
   renderSorteios();
 };
 
@@ -937,10 +994,12 @@ window.deleteSorteioAdmin = async function (id) {
       selectedSorteioId = null;
       selectedSorteio = null;
       selectedSorteioWinner = null;
+      selectedSorteioResults = [];
       currentParticipants = [];
       _unsubscribeSorteioListeners();
       renderSorteioDetails();
       renderParticipants();
+      renderSorteioResults();
     }
     await refreshSorteios();
   } catch (err) {
@@ -949,7 +1008,7 @@ window.deleteSorteioAdmin = async function (id) {
   }
 };
 
-window.drawWinnerSelected = function () {
+window.drawWinnerSelected = async function () {
   if (!selectedSorteio) {
     showToast("Selecione um sorteio antes de sortear um vencedor.", "warn");
     return;
@@ -958,13 +1017,25 @@ window.drawWinnerSelected = function () {
     showToast("Não há participantes disponíveis para este sorteio.", "warn");
     return;
   }
-  const index = Math.floor(Math.random() * currentParticipants.length);
-  selectedSorteioWinner = currentParticipants[index];
-  renderSorteioDetails();
-  showToast(`Vencedor sorteado: ${selectedSorteioWinner.uid || selectedSorteioWinner.id}`, "success");
+
+  try {
+    const result = await pickSorteioWinner(selectedSorteio.id, null);
+    if (!result.success) {
+      throw new Error(result.error || "Falha ao sortear vencedor.");
+    }
+    selectedSorteioWinner = result.data?.winner || null;
+    renderSorteioDetails();
+    await fetchSelectedSorteioResults(selectedSorteio.id);
+    showToast(`Vencedor oficial sorteado: ${selectedSorteioWinner?.uid || selectedSorteioWinner?.id}`, "success");
+    await refreshSorteios();
+    if (selectedSorteioId) selectSorteio(selectedSorteioId);
+  } catch (err) {
+    console.error("[ADMIN] Erro ao sortear vencedor:", err);
+    showToast(err.message || "Erro ao sortear vencedor.", "error");
+  }
 };
 
-window.rerollWinnerSelected = function () {
+window.rerollWinnerSelected = async function () {
   if (!selectedSorteio) {
     showToast("Selecione um sorteio antes de refazer o sorteio.", "warn");
     return;
@@ -973,17 +1044,22 @@ window.rerollWinnerSelected = function () {
     showToast("Não há participantes disponíveis para refazer o sorteio.", "warn");
     return;
   }
-  if (currentParticipants.length === 1) {
-    selectedSorteioWinner = currentParticipants[0];
-  } else {
-    let index;
-    do {
-      index = Math.floor(Math.random() * currentParticipants.length);
-    } while (currentParticipants[index] && selectedSorteioWinner && currentParticipants[index].id === selectedSorteioWinner.id);
-    selectedSorteioWinner = currentParticipants[index];
+
+  try {
+    const result = await pickSorteioWinner(selectedSorteio.id, null);
+    if (!result.success) {
+      throw new Error(result.error || "Falha ao refazer o sorteio.");
+    }
+    selectedSorteioWinner = result.data?.winner || null;
+    renderSorteioDetails();
+    await fetchSelectedSorteioResults(selectedSorteio.id);
+    showToast(`Novo vencedor oficial: ${selectedSorteioWinner?.uid || selectedSorteioWinner?.id}`, "success");
+    await refreshSorteios();
+    if (selectedSorteioId) selectSorteio(selectedSorteioId);
+  } catch (err) {
+    console.error("[ADMIN] Erro ao refazer o sorteio:", err);
+    showToast(err.message || "Erro ao refazer o sorteio.", "error");
   }
-  renderSorteioDetails();
-  showToast(`Novo vencedor: ${selectedSorteioWinner.uid || selectedSorteioWinner.id}`, "success");
 };
 
 async function handleSorteioFormSubmit(event) {
