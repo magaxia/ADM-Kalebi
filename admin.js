@@ -91,6 +91,15 @@ let selectedImagePreviewUrl = null;
 let currentParticipants = [];
 let selectedSorteioWinner = null;
 let selectedSorteioResults = [];
+let activeSorteioAdminTab = "resumo";
+const toastTimeouts = new Set();
+
+function clearPendingToasts() {
+  toastTimeouts.forEach((timerId) => clearTimeout(timerId));
+  toastTimeouts.clear();
+}
+
+window.addEventListener("beforeunload", clearPendingToasts);
 
 // ─── Geração de código aleatório ─────────────────────────────────────────────
 function randomSegment(len = 8) {
@@ -543,12 +552,36 @@ function renderSorteioStats() {
   const total = allSorteios.length;
   const active = allSorteios.filter(s => s?.status === "ativa").length;
   const participants = allSorteios.reduce((sum, s) => sum + _toNonNegativeInteger(s?.participacoesCount, 0), 0);
-  const winners = allSorteios.filter(s => s?.status === "encerrada").length;
+  const winners = allSorteios.filter((s) => {
+    if (Array.isArray(s?.winners) && s.winners.length) return true;
+    return Boolean(s?.winner);
+  }).length;
 
   document.getElementById("stat-sorteios-total").textContent = total;
   document.getElementById("stat-sorteios-active").textContent = active;
   document.getElementById("stat-sorteios-participants").textContent = participants;
   document.getElementById("stat-sorteios-winners").textContent = winners;
+}
+
+function getSorteioStatusMeta(sorteio) {
+  const value = (sorteio?.status || "programada").toString().toLowerCase();
+  const mapping = {
+    ativa: { txt: "Ativa", cls: "status-ativa" },
+    pausada: { txt: "Pausada", cls: "status-pausada" },
+    encerrada: { txt: "Encerrada", cls: "status-encerrada" },
+    programada: { txt: "Programada", cls: "status-programada" },
+  };
+  return mapping[value] || { txt: value || "Programada", cls: "status-programada" };
+}
+
+function renderSorteioAdminTabs() {
+  const activeTab = activeSorteioAdminTab || "resumo";
+  document.querySelectorAll(".sorteio-tab").forEach((button) => {
+    button.classList.toggle("active", button.dataset.tab === activeTab);
+  });
+  document.querySelectorAll(".sorteio-tab-panel").forEach((panel) => {
+    panel.classList.toggle("active", panel.id === `sorteio-tab-${activeTab}`);
+  });
 }
 
 function showToast(message, type = "info", duration = 4000) {
@@ -581,10 +614,13 @@ function showToast(message, type = "info", duration = 4000) {
   requestAnimationFrame(() => {
     toast.style.opacity = "1";
   });
-  setTimeout(() => {
+  const removeTimer = setTimeout(() => {
+    toastTimeouts.delete(removeTimer);
     toast.style.opacity = "0";
-    setTimeout(() => toast.remove(), 300);
+    const cleanupTimer = setTimeout(() => toast.remove(), 300);
+    toastTimeouts.add(cleanupTimer);
   }, duration);
+  toastTimeouts.add(removeTimer);
 }
 
 function _renderSorteioDates(sorteio) {
@@ -592,6 +628,47 @@ function _renderSorteioDates(sorteio) {
   const pub = sorteio?.dataPublica ? _formatDateShort(sorteio.dataPublica) : "—";
   const end = sorteio?.dataFinal ? _formatDateShort(sorteio.dataFinal) : "—";
   return `VIP: ${vip} · Pública: ${pub} · Fim: ${end}`;
+}
+
+function getSorteioWinnerDisplay(sorteio, fallbackWinner = null) {
+  if (sorteio && Array.isArray(sorteio.winners) && sorteio.winners.length) {
+    return sorteio.winners.map((winner) => winner.uid || winner.id || "—").join(", ");
+  }
+  const winnerData = fallbackWinner || sorteio?.winner || null;
+  if (winnerData) {
+    return winnerData.uid || winnerData.id || "—";
+  }
+  return "Ainda não sorteado";
+}
+
+function buildSorteioPayloadFromForm() {
+  const titulo = document.getElementById("sorteio-titulo").value.trim();
+  const quantidade = parseInt(document.getElementById("sorteio-qty").value, 10) || 0;
+  const limitePorUsuario = parseInt(document.getElementById("sorteio-limite").value, 10) || 1;
+  const status = document.getElementById("sorteio-status-sel").value;
+  const dataVip = document.getElementById("sorteio-data-vip").value;
+  const dataPublica = document.getElementById("sorteio-data-publica").value;
+  const dataFinal = document.getElementById("sorteio-data-final").value;
+  const tipoSorteio = document.getElementById("sorteio-tipo").value.trim();
+  const descricao = document.getElementById("sorteio-descricao").value.trim();
+  const premio = (document.getElementById("sorteio-premio") && document.getElementById("sorteio-premio").value.trim()) || null;
+  const regulamento = (document.getElementById("sorteio-regulamento") && document.getElementById("sorteio-regulamento").value.trim()) || null;
+  const quantidadeGanhadores = parseInt(document.getElementById("sorteio-quantidade-ganhadores").value, 10) || 1;
+
+  return {
+    titulo,
+    quantidade,
+    limitePorUsuario,
+    status,
+    dataVip: dataVip ? new Date(dataVip) : null,
+    dataPublica: dataPublica ? new Date(dataPublica) : null,
+    dataFinal: dataFinal ? new Date(dataFinal) : null,
+    tipoSorteio: tipoSorteio || undefined,
+    descricao: descricao || undefined,
+    premio: premio || undefined,
+    regulamento: regulamento || undefined,
+    quantidadeGanhadores: quantidadeGanhadores || undefined,
+  };
 }
 
 function renderSorteios() {
@@ -610,16 +687,16 @@ function renderSorteios() {
 
   tbody.innerHTML = page.map((sorteio) => {
     const created = _formatDateShort(sorteio.createdAt);
+    const statusMeta = getSorteioStatusMeta(sorteio);
     const statusLabel = {
-      ativa:      { cls: "badge-ativa",      txt: "Ativa"      },
-      pausada:    { cls: "badge-pausada",    txt: "Pausada"    },
-      encerrada:  { cls: "badge-encerrada",  txt: "Encerrada"  },
-      programada: { cls: "badge-programada", txt: "Programada" },
-    }[sorteio.status] || { cls: "", txt: sorteio.status || "—" };
+      cls: statusMeta.cls ? `${statusMeta.cls}` : "",
+      txt: statusMeta.txt || sorteio.status || "—",
+    };
 
     const participantsCount = _toNonNegativeInteger(sorteio.participacoesCount, 0);
-    const winner = (sorteio.winner && (sorteio.winner.uid || sorteio.winner.id)) ||
-      (selectedSorteioId === sorteio.id && selectedSorteioWinner ? selectedSorteioWinner.uid || selectedSorteioWinner.id : "—");
+    const winner = selectedSorteioId === sorteio.id && selectedSorteioWinner
+      ? selectedSorteioWinner.uid || selectedSorteioWinner.id || "—"
+      : getSorteioWinnerDisplay(sorteio, null);
     const btnActivate = sorteio.status !== "ativa" ? `<button class="btn-sm btn-reset" onclick="activateSorteioAdmin('${sorteio.id}')">Ativar</button>` : "";
     const btnPause = sorteio.status === "ativa" ? `<button class="btn-sm btn-blue" onclick="pauseSorteioAdmin('${sorteio.id}')">Pausar</button>` : "";
     const btnEnd = (sorteio.status === "ativa" || sorteio.status === "pausada") ? `<button class="btn-sm btn-delete" onclick="endSorteioAdmin('${sorteio.id}')">Encerrar</button>` : "";
@@ -651,6 +728,7 @@ function renderSorteioDetails() {
   const participantsEl = document.getElementById("detail-participants");
   const winnerEl = document.getElementById("detail-winner");
   const datesEl = document.getElementById("detail-dates");
+  const badgeEl = document.getElementById("sorteio-badge-status");
 
   const detailGrid = document.getElementById("sorteio-detail-grid");
   if (!selectedSorteio) {
@@ -659,7 +737,12 @@ function renderSorteioDetails() {
     if (participantsEl) participantsEl.textContent = "—";
     if (winnerEl) winnerEl.textContent = "—";
     if (datesEl) datesEl.textContent = "—";
+    if (badgeEl) {
+      badgeEl.textContent = "Pronto para operação";
+      badgeEl.className = "sorteio-summary-pill";
+    }
     if (detailGrid) detailGrid.style.display = "none";
+    renderSorteioAdminTabs();
     return;
   }
 
@@ -667,9 +750,29 @@ function renderSorteioDetails() {
   if (titleEl) titleEl.textContent = selectedSorteio.titulo || "Sorteio selecionado";
   if (statusEl) statusEl.textContent = selectedSorteio.status || "—";
   if (participantsEl) participantsEl.textContent = _toNonNegativeInteger(selectedSorteio.participacoesCount, 0);
-  const winnerData = selectedSorteioWinner || selectedSorteio.winner || null;
-  if (winnerEl) winnerEl.textContent = winnerData ? (winnerData.uid || winnerData.id || "—") : "Ainda não sorteado";
+  const winnerDisplay = getSorteioWinnerDisplay(selectedSorteio, selectedSorteioWinner || selectedSorteio?.winner || null);
+  if (winnerEl) winnerEl.textContent = winnerDisplay;
+  const premioEl = document.getElementById("detail-premio");
+  const regulamentoEl = document.getElementById("detail-regulamento");
+  const qGanhEl = document.getElementById("detail-quantidade-ganhadores");
+  const premioSummaryEl = document.getElementById("detail-premio-summary");
+  const summaryWinnersEl = document.getElementById("detail-summary-winners");
+  const summaryParticipantsEl = document.getElementById("detail-summary-participants");
+  const summaryDatesEl = document.getElementById("detail-summary-dates");
+  if (premioEl) premioEl.textContent = selectedSorteio.premio || "—";
+  if (regulamentoEl) regulamentoEl.textContent = selectedSorteio.regulamento || "—";
+  if (qGanhEl) qGanhEl.textContent = String(_toNonNegativeInteger(selectedSorteio.quantidadeGanhadores, 1));
   if (datesEl) datesEl.textContent = _renderSorteioDates(selectedSorteio);
+  if (premioSummaryEl) premioSummaryEl.textContent = selectedSorteio.premio || "—";
+  if (summaryWinnersEl) summaryWinnersEl.textContent = winnerDisplay;
+  if (summaryParticipantsEl) summaryParticipantsEl.textContent = _toNonNegativeInteger(selectedSorteio.participacoesCount, 0);
+  if (summaryDatesEl) summaryDatesEl.textContent = _renderSorteioDates(selectedSorteio);
+  if (badgeEl) {
+    const statusMeta = getSorteioStatusMeta(selectedSorteio);
+    badgeEl.textContent = statusMeta.txt;
+    badgeEl.className = `sorteio-summary-pill ${statusMeta.cls}`;
+  }
+  renderSorteioAdminTabs();
 }
 
 function renderParticipants() {
@@ -709,12 +812,17 @@ function renderSorteioResults() {
   }
 
   tbody.innerHTML = selectedSorteioResults.map((result) => {
-    const winnerUid = result.winner?.uid || result.winner?.id || "—";
     const selectedBy = result.selectedBy?.email || result.selectedBy?.uid || "—";
+    let winnerCell = "—";
+    if (Array.isArray(result.winners) && result.winners.length) {
+      winnerCell = result.winners.map(w => w.uid || w.id || "—").join(", ");
+    } else if (result.winner) {
+      winnerCell = result.winner.uid || result.winner.id || "—";
+    }
     return `
       <tr>
         <td>${_formatDateValue(result.createdAt)}</td>
-        <td class="mono small">${winnerUid}</td>
+        <td class="mono small">${winnerCell}</td>
         <td>${selectedBy}</td>
       </tr>`;
   }).join("");
@@ -764,6 +872,7 @@ function selectSorteio(id) {
   selectedSorteioId = id;
   selectedSorteioWinner = null;
   selectedSorteioResults = [];
+  activeSorteioAdminTab = "resumo";
   renderSorteios();
   subscribeSorteioRealtime(id);
   fetchSelectedSorteioResults(id);
@@ -806,6 +915,9 @@ function loadSorteioForm(sorteio = null) {
     document.getElementById("sorteio-data-final").value = sorteio.dataFinal ? new Date(sorteio.dataFinal.toDate ? sorteio.dataFinal.toDate() : sorteio.dataFinal).toISOString().slice(0, 16) : "";
     document.getElementById("sorteio-tipo").value = sorteio.tipoSorteio || "";
     document.getElementById("sorteio-descricao").value = sorteio.descricao || "";
+    document.getElementById("sorteio-premio").value = sorteio.premio || "";
+    document.getElementById("sorteio-regulamento").value = sorteio.regulamento || "";
+    document.getElementById("sorteio-quantidade-ganhadores").value = _toNonNegativeInteger(sorteio.quantidadeGanhadores, 1);
     if (sorteio.imagem) {
       const preview = document.getElementById("sorteio-image-preview");
       preview.src = sorteio.imagem;
@@ -921,6 +1033,7 @@ window.resetSorteioForm = function () {
   loadSorteioForm(null);
   selectedSorteioWinner = null;
   selectedSorteioResults = [];
+  activeSorteioAdminTab = "resumo";
   _unsubscribeSorteioListeners();
   currentParticipants = [];
   renderParticipants();
@@ -1075,17 +1188,8 @@ async function handleSorteioFormSubmit(event) {
   }
 
   try {
-    const titulo = document.getElementById("sorteio-titulo").value.trim();
-    const quantidade = parseInt(document.getElementById("sorteio-qty").value, 10) || 0;
-    const limitePorUsuario = parseInt(document.getElementById("sorteio-limite").value, 10) || 1;
-    const status = document.getElementById("sorteio-status-sel").value;
-    const dataVip = document.getElementById("sorteio-data-vip").value;
-    const dataPublica = document.getElementById("sorteio-data-publica").value;
-    const dataFinal = document.getElementById("sorteio-data-final").value;
-    const tipoSorteio = document.getElementById("sorteio-tipo").value.trim();
-    const descricao = document.getElementById("sorteio-descricao").value.trim();
-
-    if (!titulo) {
+    const payloadFromForm = buildSorteioPayloadFromForm();
+    if (!payloadFromForm.titulo) {
       throw new Error("Título é obrigatório.");
     }
 
@@ -1097,15 +1201,7 @@ async function handleSorteioFormSubmit(event) {
     }
 
     const payload = {
-      titulo,
-      quantidade,
-      limitePorUsuario,
-      status,
-      dataVip: dataVip ? new Date(dataVip) : null,
-      dataPublica: dataPublica ? new Date(dataPublica) : null,
-      dataFinal: dataFinal ? new Date(dataFinal) : null,
-      tipoSorteio: tipoSorteio || undefined,
-      descricao: descricao || undefined,
+      ...payloadFromForm,
       imagem: imagem || undefined,
     };
 
@@ -1147,6 +1243,11 @@ async function handleSorteioFormSubmit(event) {
 }
 
 window.refreshSorteios = refreshSorteios;
+
+window.switchSorteioAdminTab = function (tab) {
+  activeSorteioAdminTab = tab;
+  renderSorteioAdminTabs();
+};
 
 window.sorteioImageInputChanged = function (event) {
   const file = event.target.files && event.target.files[0] ? event.target.files[0] : null;
