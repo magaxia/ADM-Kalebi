@@ -77,6 +77,74 @@ function _serializeSnapshot(snapshot) {
   return snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null;
 }
 
+function _normalizeWinnerRecord(value) {
+  if (!value) {
+    return null;
+  }
+  if (typeof value === "string") {
+    return { uid: value, id: value };
+  }
+  if (typeof value === "object") {
+    const uid = value.uid || value.id || value.userId || null;
+    const id = value.id || uid || null;
+    if (!uid && !id) {
+      return null;
+    }
+    return _stripUndefined({
+      id,
+      uid,
+      count: _toNonNegativeInteger(value.count, 0),
+      status: value.status || null,
+      lastParticipationAt: value.lastParticipationAt || null,
+      selectedAt: value.selectedAt || null,
+    });
+  }
+  return null;
+}
+
+function _normalizeWinners(value, fallbackWinner = null) {
+  const list = [];
+  if (Array.isArray(value)) {
+    value.forEach((entry) => {
+      const normalized = _normalizeWinnerRecord(entry);
+      if (normalized) {
+        list.push(normalized);
+      }
+    });
+  }
+  if (!list.length) {
+    const fallback = _normalizeWinnerRecord(fallbackWinner);
+    if (fallback) {
+      list.push(fallback);
+    }
+  }
+  return list;
+}
+
+function _withDisplayDefaults(sorteio) {
+  if (!sorteio) return sorteio;
+  const winners = _normalizeWinners(sorteio.winners, sorteio.winner);
+  const firstWinner = winners[0] || _normalizeWinnerRecord(sorteio.winner) || null;
+  return {
+    ...sorteio,
+    banner: sorteio.banner || sorteio.imagem || null,
+    imagem: sorteio.imagem || sorteio.banner || null,
+    premio: sorteio.premio || null,
+    quantidadeGanhadores: typeof sorteio.quantidadeGanhadores === 'number' ? sorteio.quantidadeGanhadores : (sorteio.quantidadeGanhadores ?? 1),
+    valor: sorteio.valor ?? null,
+    entrega: sorteio.entrega ?? null,
+    observacoes: sorteio.observacoes ?? null,
+    destaque: Boolean(sorteio.destaque),
+    ordem: _toNonNegativeInteger(sorteio.ordem, 0),
+    idInterno: _toSafeString(sorteio.idInterno) || null,
+    tipoSorteio: _toSafeString(sorteio.tipoSorteio) || _toSafeString(sorteio.tipo) || null,
+    winner: firstWinner,
+    winners,
+    participacoesCount: Number(sorteio.participacoesCount || 0),
+    quantidade: Number(sorteio.quantidade || 0),
+  };
+}
+
 function _timestampToMillis(value) {
   if (!value) {
     return 0;
@@ -156,12 +224,20 @@ function _validateSorteioPayload(payload, isCreate = true) {
   const titulo = _toSafeString(payload.titulo);
   const descricao = payload.descricao === undefined ? null : _toSafeString(String(payload.descricao));
   const imagem = payload.imagem === undefined ? null : _toSafeString(String(payload.imagem));
+  const banner = payload.banner === undefined ? null : _toSafeString(String(payload.banner));
   const tipoSorteio = payload.tipoSorteio === undefined ? null : _toSafeString(String(payload.tipoSorteio));
+  const premio = payload.premio === undefined ? null : _toSafeString(String(payload.premio));
+  const regulamento = payload.regulamento === undefined ? null : _toSafeString(String(payload.regulamento));
+  const idInterno = payload.idInterno === undefined ? null : _toSafeString(String(payload.idInterno));
+  const destaque = payload.destaque === undefined ? null : Boolean(payload.destaque);
+  const ordem = payload.ordem === undefined ? undefined : _toNonNegativeInteger(payload.ordem);
   const status = payload.status === undefined ? null : payload.status;
   const quantidade = payload.quantidade === undefined ? undefined : _toNonNegativeInteger(payload.quantidade);
   const limitePorUsuario = payload.limitePorUsuario === undefined ? undefined : _toNonNegativeInteger(payload.limitePorUsuario);
+  const quantidadeGanhadores = payload.quantidadeGanhadores === undefined ? undefined : _toNonNegativeInteger(payload.quantidadeGanhadores);
   const dataVip = payload.dataVip === undefined ? null : _normalizeTimestamp(payload.dataVip);
   const dataPublica = payload.dataPublica === undefined ? null : _normalizeTimestamp(payload.dataPublica);
+  const dataSorteio = payload.dataSorteio === undefined ? null : _normalizeTimestamp(payload.dataSorteio);
   const dataFinal = payload.dataFinal === undefined ? null : _normalizeTimestamp(payload.dataFinal);
 
   if (isCreate && !titulo) {
@@ -172,6 +248,12 @@ function _validateSorteioPayload(payload, isCreate = true) {
   }
   if (descricao && descricao.length > 1000) {
     errors.push('"descricao" não pode exceder 1000 caracteres.');
+  }
+  if (premio && premio.length > 500) {
+    errors.push('"premio" não pode exceder 500 caracteres.');
+  }
+  if (regulamento && regulamento.length > 5000) {
+    errors.push('"regulamento" não pode exceder 5000 caracteres.');
   }
   if (imagem && imagem.length > 1024) {
     errors.push('"imagem" não pode exceder 1024 caracteres.');
@@ -194,6 +276,9 @@ function _validateSorteioPayload(payload, isCreate = true) {
   if (payload.dataPublica !== undefined && payload.dataPublica !== null && !dataPublica) {
     errors.push('"dataPublica" inválida.');
   }
+  if (payload.dataSorteio !== undefined && payload.dataSorteio !== null && !dataSorteio) {
+    errors.push('"dataSorteio" inválida.');
+  }
   if (payload.dataFinal !== undefined && payload.dataFinal !== null && !dataFinal) {
     errors.push('"dataFinal" inválida.');
   }
@@ -201,11 +286,17 @@ function _validateSorteioPayload(payload, isCreate = true) {
   if (dataVip && dataPublica && _timestampToMillis(dataVip) > _timestampToMillis(dataPublica)) {
     errors.push('"dataVip" deve ser anterior ou igual a "dataPublica".');
   }
-  if (dataPublica && dataFinal && _timestampToMillis(dataPublica) > _timestampToMillis(dataFinal)) {
-    errors.push('"dataPublica" deve ser anterior ou igual a "dataFinal".');
+  if (dataPublica && dataSorteio && _timestampToMillis(dataPublica) > _timestampToMillis(dataSorteio)) {
+    errors.push('"dataPublica" deve ser anterior ou igual a "dataSorteio".');
+  }
+  if (dataSorteio && dataFinal && _timestampToMillis(dataSorteio) > _timestampToMillis(dataFinal)) {
+    errors.push('"dataSorteio" deve ser anterior ou igual a "dataFinal".');
   }
   if (dataVip && dataFinal && _timestampToMillis(dataVip) > _timestampToMillis(dataFinal)) {
     errors.push('"dataVip" deve ser anterior ou igual a "dataFinal".');
+  }
+  if (quantidadeGanhadores !== undefined && (typeof quantidadeGanhadores !== 'number' || quantidadeGanhadores < 1)) {
+    errors.push('"quantidadeGanhadores" deve ser um inteiro >= 1.');
   }
 
   if (errors.length > 0) {
@@ -217,12 +308,20 @@ function _validateSorteioPayload(payload, isCreate = true) {
     descricao,
     imagem,
     tipoSorteio,
+    premio,
+    regulamento,
+    quantidadeGanhadores,
     status,
     quantidade,
     limitePorUsuario,
     dataVip,
     dataPublica,
+    dataSorteio,
     dataFinal,
+    banner,
+    idInterno,
+    destaque,
+    ordem,
   };
 }
 
@@ -304,12 +403,20 @@ export async function createSorteio(payload, admin = {}) {
       descricao,
       imagem,
       tipoSorteio,
+      premio,
+      regulamento,
+      quantidadeGanhadores,
       status,
       quantidade,
       limitePorUsuario,
       dataVip,
       dataPublica,
+      dataSorteio,
       dataFinal,
+      banner,
+      idInterno,
+      destaque,
+      ordem,
     } = _validateSorteioPayload(payload, true);
 
     const data = _stripUndefined({
@@ -318,12 +425,20 @@ export async function createSorteio(payload, admin = {}) {
       imagem,
       tipoSorteio: tipoSorteio || "geral",
       status: status || STATUS.PROGRAMADA,
+      premio: premio || null,
+      regulamento: regulamento || null,
+      quantidadeGanhadores: quantidadeGanhadores ?? 1,
       quantidade: quantidade ?? 0,
       limitePorUsuario: limitePorUsuario ?? DEFAULT_USER_LIMIT,
       participacoesCount: 0,
       dataVip,
       dataPublica,
+      dataSorteio,
       dataFinal,
+      banner: banner || null,
+      idInterno: idInterno || null,
+      destaque: Boolean(destaque),
+      ordem: ordem ?? 0,
       createdBy: {
         uid: admin?.uid || null,
         email: admin?.email || null,
@@ -363,12 +478,20 @@ export async function editSorteio(id, changes, admin = {}) {
       descricao,
       imagem,
       tipoSorteio,
+      premio,
+      regulamento,
+      quantidadeGanhadores,
       status,
       quantidade,
       limitePorUsuario,
       dataVip,
       dataPublica,
+      dataSorteio,
       dataFinal,
+      banner,
+      idInterno,
+      destaque,
+      ordem,
     } = _validateSorteioPayload(changes, false);
 
     const update = _stripUndefined({
@@ -376,12 +499,20 @@ export async function editSorteio(id, changes, admin = {}) {
       descricao,
       imagem,
       tipoSorteio,
+      premio,
+      regulamento,
+      quantidadeGanhadores,
       status,
       quantidade,
       limitePorUsuario,
       dataVip,
       dataPublica,
+      dataSorteio,
       dataFinal,
+      banner: banner || null,
+      idInterno: idInterno || null,
+      destaque: Boolean(destaque),
+      ordem: ordem ?? 0,
       updatedAt: serverTimestamp(),
     });
 
@@ -489,11 +620,22 @@ export async function duplicateSorteio(id, admin = {}) {
       descricao: original.descricao,
       imagem: original.imagem,
       tipoSorteio: original.tipoSorteio,
+      premio: original.premio ?? null,
+      regulamento: original.regulamento ?? null,
+      quantidadeGanhadores: original.quantidadeGanhadores ?? 1,
+      valor: original.valor ?? null,
+      entrega: original.entrega ?? null,
+      observacoes: original.observacoes ?? null,
       quantidade: original.quantidade ?? 0,
       limitePorUsuario: original.limitePorUsuario ?? DEFAULT_USER_LIMIT,
       dataVip: original.dataVip,
       dataPublica: original.dataPublica,
+      dataSorteio: original.dataSorteio,
       dataFinal: original.dataFinal,
+      banner: original.banner || original.imagem || null,
+      idInterno: original.idInterno || null,
+      destaque: Boolean(original.destaque),
+      ordem: _toNonNegativeInteger(original.ordem, 0),
       status: STATUS.PROGRAMADA,
       participacoesCount: 0,
       createdBy: {
@@ -552,6 +694,7 @@ export async function fetchAllSorteios({ statusFilter = null, limit: lim = DEF_L
     const items = page
       .map(_serializeSnapshot)
       .filter(Boolean)
+      .map(_withDisplayDefaults)
       .sort((a, b) => _timestampToMillis(b.createdAt) - _timestampToMillis(a.createdAt));
 
     return _ok({ items, hasMore, lastDoc: page.length > 0 ? page[page.length - 1] : null });
@@ -600,7 +743,8 @@ export async function fetchVisibleSorteios({ isVip = false, limit: lim = DEF_LIM
         return false;
       })
       .sort((a, b) => _timestampToMillis(b.createdAt) - _timestampToMillis(a.createdAt))
-      .slice(0, safeLimit);
+      .slice(0, safeLimit)
+      .map(_withDisplayDefaults);
 
     return _ok({ items, hasMore: items.length >= safeLimit && docs.length > safeLimit, lastDoc: docs.length > 0 ? docs[docs.length - 1] : null });
   } catch (error) {
@@ -617,7 +761,8 @@ export async function fetchSorteioById(id) {
     if (!snapshot.exists()) {
       throw new Error(`Sorteio não encontrado: "${id}".`);
     }
-    return _ok(_serializeSnapshot(snapshot));
+    const data = _serializeSnapshot(snapshot);
+    return _ok(_withDisplayDefaults(data));
   } catch (error) {
     return _err("Erro ao buscar sorteio: " + error.message, error);
   }
@@ -782,54 +927,87 @@ export async function pickSorteioWinner(sorteioId, admin = {}) {
       throw new Error("Sorteio não encontrado.");
     }
 
+    const sorteio = sorteioSnap.data();
     const participantsSnap = await getDocs(_participantCollectionRef(sorteioId));
     const participants = participantsSnap.docs
       .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
-      .filter((p) => p && p.uid);
+      .filter((p) => p && (p.uid || p.id));
 
     if (!participants.length) {
       throw new Error("Nenhum participante encontrado para este sorteio.");
     }
 
-    const winner = _randomItem(participants);
-    if (!winner) {
-      throw new Error("Não foi possível sortear um vencedor.");
+    const requestedCount = Math.max(1, Math.min(_toNonNegativeInteger(sorteio.quantidadeGanhadores, 1), participants.length));
+    const pool = participants.slice();
+    const picked = [];
+    while (picked.length < requestedCount && pool.length) {
+      const idx = Math.floor(Math.random() * pool.length);
+      const item = pool.splice(idx, 1)[0];
+      if (item) {
+        picked.push(item);
+      }
     }
 
-    const winnerData = _stripUndefined({
+    if (!picked.length) {
+      throw new Error("Não foi possível sortear vencedores.");
+    }
+
+    const winnersArray = picked.map((winner) => _stripUndefined({
       id: winner.id || null,
       uid: winner.uid || null,
       count: _toNonNegativeInteger(winner.count, 0),
       status: winner.status || null,
       lastParticipationAt: winner.lastParticipationAt || null,
       selectedAt: serverTimestamp(),
+    }));
+
+    const winnerData = winnersArray[0] || null;
+    const drawSeed = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
+    const nextDrawNumber = _toNonNegativeInteger(sorteio.lastDraw?.drawNumber, 0) + 1;
+    const drawMeta = _stripUndefined({
+      drawDate: serverTimestamp(),
+      drawBy: { uid: admin?.uid || null, email: admin?.email || null },
+      drawVersion: 'v2',
+      drawSeed,
+      drawNumber: nextDrawNumber,
+      participantCount: participants.length,
+      winnerCount: winnersArray.length,
+      selectionMode: 'unique',
     });
 
-    await updateDoc(sorteioRef, {
-      winner: winnerData,
+    await updateDoc(sorteioRef, _stripUndefined({
+      winner: winnerData || null,
+      winners: winnersArray,
+      lastDraw: drawMeta,
       updatedAt: serverTimestamp(),
-    });
+    }));
 
     const resultRef = doc(collection(db, COL_RESULTS));
     await setDoc(resultRef, _stripUndefined({
       sorteioId,
-      winner: winnerData,
+      winner: winnerData || null,
+      winners: winnersArray,
       createdAt: serverTimestamp(),
       selectedBy: {
         uid: admin?.uid || null,
         email: admin?.email || null,
       },
+      drawMeta,
+      roundNumber: nextDrawNumber,
+      participantCount: participants.length,
+      winnerCount: winnersArray.length,
+      resultType: 'draw',
     }));
 
     await _writeLog({
       action: "sorteio_draw_winner",
       sorteioId,
-      after: { winner: winnerData },
+      after: { winner: winnerData, winners: winnersArray, drawMeta },
       uid: admin?.uid || null,
-      message: `Vencedor sorteado para o sorteio "${sorteioId}": ${winnerData.uid}`,
+      message: `Vencedores sorteados para o sorteio "${sorteioId}".`,
     });
 
-    return _ok({ id: sorteioId, winner: winnerData });
+    return _ok({ id: sorteioId, winner: winnerData, winners: winnersArray, drawMeta, resultId: resultRef.id });
   } catch (error) {
     return _err("Erro ao sortear vencedor: " + error.message, error);
   }

@@ -1,0 +1,1497 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin VIP5</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d0d0d;
+      --surface: #141414;
+      --surface2: #1a1a1a;
+      --border: #242424;
+      --border2: #2e2e2e;
+      --text: #e8e8e8;
+      --muted: #666;
+      --accent: #f5a623;
+      --accent2: #f0541e;
+      --green: #27ae60;
+      --red: #e74c3c;
+      --blue: #3498db;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+
+    /* ── Topbar ── */
+    .topbar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .btn-refresh {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 14px;
+      background: transparent;
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: border-color 0.2s, color 0.2s, opacity 0.2s;
+      white-space: nowrap;
+    }
+    .btn-refresh:hover:not(:disabled) {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .btn-refresh:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .btn-refresh .spin {
+      display: inline-block;
+      transition: transform 0.6s ease;
+    }
+    .btn-refresh.loading .spin {
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .last-update-label {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .topbar-badge {
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      padding: 4px 12px;
+      border-radius: 100px;
+    }
+
+    .topbar h1 {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .topbar-sub {
+      font-size: 12px;
+      color: var(--muted);
+      margin-left: auto;
+    }
+
+    /* ── Layout ── */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 28px 20px 60px;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 24px;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+
+    .card-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.4px;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    /* ── Stats ── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+
+    .sorteios-stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 14px;
+    }
+
+    .stat-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 36px;
+      font-weight: 800;
+      line-height: 1;
+      margin-bottom: 6px;
+    }
+
+    .stat-value.total { color: var(--accent); }
+    .stat-value.used  { color: var(--red); }
+    .stat-value.free  { color: var(--green); }
+
+    .stat-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    /* ── Form ── */
+    .form-row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: flex-end;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .form-group label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    input[type="text"],
+    input[type="number"],
+    input[type="datetime-local"],
+    select {
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+      padding: 10px 12px;
+      outline: none;
+      width: 100%;
+      transition: border-color 0.2s;
+    }
+
+    input[type="text"]:focus,
+    input[type="number"]:focus,
+    input[type="datetime-local"]:focus,
+    select:focus {
+      border-color: var(--accent);
+    }
+
+    select option {
+      background: var(--surface2);
+      color: var(--text);
+    }
+
+    /* Corrige o ícone do datetime no dark mode */
+    input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+      filter: invert(0.6);
+      cursor: pointer;
+    }
+
+    .gen-status {
+      font-size: 13px;
+      font-weight: 600;
+      margin-top: 4px;
+      min-height: 20px;
+    }
+
+    /* ── Buttons ── */
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+      white-space: nowrap;
+    }
+
+    .btn:hover:not(:disabled) { opacity: 0.85; }
+    .btn:active:not(:disabled) { transform: scale(0.97); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff;
+    }
+
+    .btn-outline {
+      background: transparent;
+      border: 1px solid var(--border2);
+      color: var(--muted);
+    }
+
+    .btn-outline:hover:not(:disabled) {
+      border-color: var(--accent);
+      color: var(--accent);
+      opacity: 1;
+    }
+
+    .btn-sm {
+      padding: 5px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      border: none;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .btn-sm:hover { opacity: 0.75; }
+
+    .btn-reset  { background: #1e3a2f; color: var(--green); }
+    .btn-delete { background: #3a1e1e; color: var(--red); }
+    .btn-blue   { background: #1e2e3a; color: var(--blue); }
+
+    /* ── Search ── */
+    .search-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .search-bar input {
+      max-width: 280px;
+    }
+
+    .export-group {
+      display: flex;
+      gap: 8px;
+      margin-left: auto;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .inline-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .image-preview {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      margin-top: 10px;
+    }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(120px, 1fr));
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .detail-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      min-height: 100px;
+    }
+
+    .detail-card strong {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--muted);
+      text-transform: uppercase;
+      font-size: 10px;
+      letter-spacing: 1px;
+    }
+
+    .detail-card span {
+      display: block;
+      font-size: 14px;
+      color: var(--text);
+      word-break: break-word;
+    }
+
+    .sorteio-shell {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .sorteio-panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .sorteio-summary-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      background: rgba(255,255,255,0.06);
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+
+    .sorteio-summary-pill.status-ativa { background: rgba(22, 163, 74, 0.14); color: #4ade80; border-color: rgba(22, 163, 74, 0.28); }
+    .sorteio-summary-pill.status-pausada { background: rgba(245, 158, 11, 0.14); color: #fbbf24; border-color: rgba(245, 158, 11, 0.28); }
+    .sorteio-summary-pill.status-encerrada { background: rgba(248, 113, 113, 0.16); color: #f87171; border-color: rgba(248, 113, 113, 0.28); }
+    .sorteio-summary-pill.status-programada { background: rgba(59, 130, 246, 0.16); color: #60a5fa; border-color: rgba(59, 130, 246, 0.28); }
+
+    .sorteio-tab-list {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .sorteio-tab {
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 7px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .sorteio-tab.active {
+      background: linear-gradient(90deg, rgba(99,102,241,0.16), rgba(59,130,246,0.16));
+      color: var(--text);
+      border-color: rgba(99,102,241,0.26);
+    }
+
+    .sorteio-tab-panel {
+      display: none;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .sorteio-tab-panel.active {
+      display: flex;
+    }
+
+    .sorteio-highlight-card {
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      background: linear-gradient(135deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+    }
+
+    .sorteio-highlight-title {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .sorteio-highlight-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(140px, 1fr));
+      gap: 12px;
+    }
+
+    .sorteio-highlight-item {
+      padding: 12px;
+      border-radius: 12px;
+      background: rgba(0,0,0,0.16);
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .sorteio-highlight-item span {
+      display: block;
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      margin-bottom: 6px;
+    }
+
+    .sorteio-highlight-item strong {
+      display: block;
+      font-size: 13px;
+      color: var(--text);
+      line-height: 1.4;
+      word-break: break-word;
+    }
+
+    .toast-container {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      display: grid;
+      gap: 10px;
+      z-index: 999;
+      width: min(360px, calc(100% - 40px));
+    }
+
+    .toast {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      background: rgba(20, 20, 20, 0.96);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--text);
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.24);
+      animation: toastAppear 0.24s ease;
+    }
+
+    .toast.success { border-color: rgba(39, 174, 96, 0.35); }
+    .toast.error { border-color: rgba(231, 76, 60, 0.35); }
+
+    @keyframes toastAppear {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .table-wrap.small {
+      overflow-x: auto;
+      margin-top: 12px;
+    }
+
+    .form-group textarea {
+      min-height: 90px;
+      resize: vertical;
+    }
+
+    .panel-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .panel-label .subtitle {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .sorteio-card-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    @media (max-width: 900px) {
+      .detail-grid { grid-template-columns: 1fr 1fr; }
+      .form-row { gap: 10px; }
+    }
+
+    @media (max-width: 680px) {
+      .stats-grid, .detail-grid { grid-template-columns: 1fr; }
+      .panel-label { flex-direction: column; align-items: stretch; }
+      .panel-label .subtitle { margin-top: 8px; }
+    }
+
+    /* ── Table ── */
+    .table-wrap {
+      overflow-x: auto;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    thead th {
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      padding: 10px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    tbody tr {
+      border-bottom: 1px solid var(--border);
+      transition: background 0.15s;
+    }
+
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: var(--surface); }
+
+    td {
+      padding: 10px 14px;
+      vertical-align: middle;
+      color: var(--text);
+    }
+
+    .mono  { font-family: 'Courier New', monospace; font-size: 12px; }
+    .small { font-size: 11px; color: var(--muted); }
+
+    .actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    /* ── Badges ── */
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 100px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .badge-used       { background: #3a1e1e; color: var(--red); }
+    .badge-free       { background: #1e3a2f; color: var(--green); }
+    /* ── Badges de status de promoção ── */
+    .badge-ativa      { background: #1e3a2f; color: var(--green); }
+    .badge-pausada    { background: #2a2210; color: var(--accent); }
+    .badge-encerrada  { background: #3a1e1e; color: var(--red); }
+    .badge-programada { background: #1e2e3a; color: var(--blue); }
+
+    /* ── Pagination ── */
+    .pagination {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 14px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    /* ── Divider ── */
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 20px 0;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 640px) {
+      .stats-grid { grid-template-columns: 1fr 1fr; }
+      .form-row { flex-direction: column; }
+      .form-group { width: 100%; }
+      .export-group { margin-left: 0; width: 100%; }
+      .search-bar { flex-direction: column; align-items: flex-start; }
+      .search-bar input { max-width: 100%; width: 100%; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="topbar">
+    <span class="topbar-badge">Admin</span>
+    <h1>VIP5 — Painel Administrativo</h1>
+    <button class="btn-refresh" id="btn-refresh" onclick="refreshAdmin()" title="Recarregar dados do Firestore">
+      <span class="spin">🔄</span> Atualizar
+    </button>
+    <span class="last-update-label" id="last-update">Carregando...</span>
+  </div>
+
+  <div class="container">
+
+        <!-- Estatísticas -->
+        <div class="card">
+          <p class="card-title" style="margin-bottom:16px">Estatísticas</p>
+          <div class="stats-grid">
+        <div class="stat-box">
+          <div class="stat-value total" id="stat-total">—</div>
+          <div class="stat-label">Total</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value used" id="stat-used">—</div>
+          <div class="stat-label">Usados</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value free" id="stat-available">—</div>
+          <div class="stat-label">Disponíveis</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Geração de códigos -->
+    <div class="card">
+      <p class="card-title" style="margin-bottom:18px">Gerar Códigos</p>
+      <form id="gen-form">
+        <div class="form-row">
+          <div class="form-group" style="width:110px">
+            <label>Dias</label>
+            <input type="number" id="gen-days" value="30" min="1" max="3650" required />
+          </div>
+          <div class="form-group" style="width:110px">
+            <label>Quantidade</label>
+            <input type="number" id="gen-qty" value="1" min="1" max="500" required />
+          </div>
+          <div class="form-group" style="width:160px">
+            <label>Prefixo (opcional)</label>
+            <input type="text" id="gen-prefix" placeholder="Ex: VIP30-" maxlength="20" />
+          </div>
+          <div class="form-group">
+            <label>&nbsp;</label>
+            <button type="submit" class="btn btn-primary" id="gen-btn">Gerar códigos</button>
+          </div>
+        </div>
+        <p class="gen-status" id="gen-status"></p>
+      </form>
+    </div>
+
+    <!-- Listagem de códigos -->
+    <div class="card">
+      <div class="card-header">
+        <p class="card-title">Códigos VIP</p>
+      </div>
+
+      <div class="search-bar" style="margin-bottom:16px">
+        <input type="text" id="search-input" placeholder="Pesquisar por código..." style="max-width:260px" />
+        <div class="export-group">
+          <button class="btn btn-outline" onclick="exportTxt()">⬇ Exportar TXT</button>
+          <button class="btn btn-outline" onclick="exportJson()">⬇ Exportar JSON</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Código</th>
+              <th>Dias</th>
+              <th>Status</th>
+              <th>Ativado por</th>
+              <th>Ativado em</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="codes-tbody">
+            <tr><td colspan="6" style="text-align:center;color:#555;padding:24px">Carregando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pagination">
+        <button class="btn btn-outline" style="padding:6px 14px" onclick="codesPagePrev()">← Anterior</button>
+        <span id="codes-pagination"></span>
+        <button class="btn btn-outline" style="padding:6px 14px" onclick="codesPageNext()">Próxima →</button>
+      </div>
+    </div>
+
+    <!-- Usuários VIP -->
+    <div class="card">
+      <div class="card-header">
+        <p class="card-title">Usuários VIP Ativos</p>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>UID</th>
+              <th>Código VIP</th>
+              <th>Ativado em</th>
+              <th>Expira em</th>
+              <th>Status / Dias</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="users-tbody">
+            <tr><td colspan="6" style="text-align:center;color:#555;padding:24px">Carregando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pagination">
+        <button class="btn btn-outline" style="padding:6px 14px" onclick="usersPagePrev()">← Anterior</button>
+        <span id="users-pagination"></span>
+        <button class="btn btn-outline" style="padding:6px 14px" onclick="usersPageNext()">Próxima →</button>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════════ -->
+    <!-- PROMOÇÕES — seção nova                                         -->
+    <!-- ══════════════════════════════════════════════════════════════ -->
+
+    <!-- Criar / Editar Promoção -->
+    <div class="card">
+      <p class="card-title" style="margin-bottom:18px">Criar / Editar Promoção VIP</p>
+      <form id="promo-form">
+        <input type="hidden" id="promo-id-edit" />
+
+        <div class="form-row">
+          <div class="form-group" style="flex:2;min-width:220px">
+            <label>Título *</label>
+            <input type="text" id="promo-titulo" placeholder="Ex: Black Friday VIP" maxlength="200" required />
+          </div>
+          <div class="form-group" style="width:110px">
+            <label>Vagas (0=∞)</label>
+            <input type="number" id="promo-qty" value="0" min="0" />
+          </div>
+          <div class="form-group" style="width:130px">
+            <label>Limite/usuário</label>
+            <input type="number" id="promo-limite" value="1" min="0" />
+          </div>
+          <div class="form-group" style="width:140px">
+            <label>Status inicial</label>
+            <select id="promo-status-sel">
+              <option value="programada">Programada</option>
+              <option value="ativa">Ativa</option>
+              <option value="pausada">Pausada</option>
+              <option value="encerrada">Encerrada</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row" style="margin-top:12px">
+          <div class="form-group" style="flex:1;min-width:220px">
+            <label>Descrição</label>
+            <textarea id="promo-descricao" rows="3" style="width:100%;padding:10px;border:1px solid var(--border2);border-radius:8px;background:var(--surface);color:var(--text)"></textarea>
+          </div>
+          <div class="form-group" style="width:200px">
+            <label>Tipo de desconto</label>
+            <select id="promo-tipo-desconto">
+              <option value="percentual">Percentual (%)</option>
+              <option value="fixo">Valor fixo (R$)</option>
+            </select>
+          </div>
+          <div class="form-group" style="width:160px">
+            <label>Valor do desconto</label>
+            <input type="number" id="promo-valor-desconto" value="0" min="0" step="0.01" />
+          </div>
+          <div class="form-group" style="width:160px">
+            <label>Limite total</label>
+            <input type="number" id="promo-limite-total" value="0" min="0" />
+          </div>
+        </div>
+
+        <div class="form-row" style="margin-top:12px">
+          <div class="form-group" style="flex:1;min-width:180px">
+            <label>Início</label>
+            <input type="datetime-local" id="promo-inicio" />
+          </div>
+          <div class="form-group" style="flex:1;min-width:180px">
+            <label>Encerramento</label>
+            <input type="datetime-local" id="promo-fim" />
+          </div>
+          <div class="form-group" style="width:150px">
+            <label>VIP mínimo</label>
+            <input type="number" id="promo-vip-minimo" value="0" min="0" />
+          </div>
+          <div class="form-group" style="width:180px">
+            <label>Permite acumular cupom</label>
+            <select id="promo-permitir-cupom">
+              <option value="true">Sim</option>
+              <option value="false">Não</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row" style="margin-top:12px">
+          <div class="form-group" style="flex:1;min-width:180px">
+            <label>Abertura VIP (antecipada)</label>
+            <input type="datetime-local" id="promo-data-vip" />
+          </div>
+          <div class="form-group" style="flex:1;min-width:180px">
+            <label>Abertura Pública (Opcional)</label>
+            <input type="datetime-local" id="promo-data-publica" />
+          </div>
+          <div class="form-group" style="flex:1;min-width:180px">
+            <label>Encerramento legado</label>
+            <input type="datetime-local" id="promo-data-final" />
+          </div>
+          <div class="form-group" style="align-self:flex-end;display:flex;gap:8px">
+            <button type="button" class="btn btn-outline" id="promo-cancel-edit" onclick="cancelPromoEdit()" style="display:none">Cancelar</button>
+            <button type="submit" class="btn btn-primary" id="promo-btn">Criar promoção</button>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:16px">
+          <label>Produtos participantes</label>
+          <div id="promo-produtos-list" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:8px"></div>
+        </div>
+
+        <p class="gen-status" id="promo-status"></p>
+      </form>
+    </div>
+
+    <!-- Listagem de Promoções -->
+    <div class="card">
+      <div class="card-header">
+        <p class="card-title">Promoções VIP</p>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="promo-filter-status" onchange="promoFilterChange()"
+            style="background:var(--surface);border:1px solid var(--border2);border-radius:8px;color:var(--text);font-size:12px;padding:6px 10px;outline:none;cursor:pointer">
+            <option value="">Todos status</option>
+            <option value="ativa">Ativa</option>
+            <option value="pausada">Pausada</option>
+            <option value="programada">Programada</option>
+            <option value="encerrada">Encerrada</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Título</th>
+              <th>Status</th>
+              <th>Uso</th>
+              <th>Restante</th>
+              <th>Usuários</th>
+              <th>Encerramento</th>
+              <th>Desconto</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="promos-tbody">
+            <tr><td colspan="6" style="text-align:center;color:#555;padding:24px">Carregando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pagination">
+        <button class="btn btn-outline" style="padding:6px 14px" onclick="promosPagePrev()">← Anterior</button>
+        <span id="promos-pagination"></span>
+        <button class="btn btn-outline" style="padding:6px 14px" onclick="promosPageNext()">Próxima →</button>
+      </div>
+    </div>
+
+    <!-- Gerenciamento de Sorteios VIP -->
+    <div class="card">
+      <div class="panel-label">
+        <div>
+          <p class="card-title">Sorteios VIP</p>
+          <div class="subtitle">Crie, edite, duplique, encerre e visualize sorteios com participantes em tempo real.</div>
+        </div>
+        <button class="btn btn-primary" onclick="refreshSorteios()">Atualizar sorteios</button>
+      </div>
+
+      <div class="form-row" style="margin-bottom:16px">
+        <div class="form-group" style="flex:1;min-width:180px">
+          <label>Pesquisar sorteio</label>
+          <input type="text" id="sorteio-search" placeholder="Título ou ID" />
+        </div>
+        <div class="form-group" style="width:180px">
+          <label>Status</label>
+          <select id="sorteio-filter-status" onchange="sorteioFilterChange()">
+            <option value="">Todos status</option>
+            <option value="ativa">Ativa</option>
+            <option value="pausada">Pausada</option>
+            <option value="programada">Programada</option>
+            <option value="encerrada">Encerrada</option>
+          </select>
+        </div>
+        <div class="form-group" style="width:180px">
+          <label>VIP antecipado</label>
+          <select id="sorteio-filter-vip" onchange="sorteioFilterChange()">
+            <option value="">Todos</option>
+            <option value="com-vip">Com VIP</option>
+            <option value="sem-vip">Sem VIP</option>
+          </select>
+        </div>
+        <div class="form-group" style="width:180px">
+          <label>Ordenar por</label>
+          <select id="sorteio-sort" onchange="sorteioFilterChange()">
+            <option value="createdAt_desc">Data de criação ↓</option>
+            <option value="createdAt_asc">Data de criação ↑</option>
+            <option value="dataFinal_desc">Encerramento ↓</option>
+            <option value="dataFinal_asc">Encerramento ↑</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <p class="card-title">Dashboard Administrativo</p>
+      <div class="sorteios-stats-grid" style="margin-top:16px">
+        <div class="stat-box">
+          <div class="stat-value total" id="stat-sorteios-total">—</div>
+          <div class="stat-label">Total de sorteios</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value used" id="stat-sorteios-active">—</div>
+          <div class="stat-label">Sorteios ativos</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value total" id="stat-sorteios-paused">—</div>
+          <div class="stat-label">Sorteios pausados</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value free" id="stat-sorteios-ended">—</div>
+          <div class="stat-label">Sorteios encerrados</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value total" id="stat-sorteios-future">—</div>
+          <div class="stat-label">Sorteios futuros</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value used" id="stat-sorteios-participants">—</div>
+          <div class="stat-label">Total de participantes</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value total" id="stat-sorteios-winners">—</div>
+          <div class="stat-label">Total de vencedores</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value total" id="stat-sorteios-average">—</div>
+          <div class="stat-label">Média de participantes</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value free" id="stat-sorteios-last-executed">—</div>
+          <div class="stat-label">Último sorteio realizado</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <p class="card-title" id="sorteio-form-title">Novo sorteio VIP</p>
+      <form id="sorteio-form">
+        <div class="form-row">
+          <div class="form-group" style="flex:2;min-width:220px">
+            <label>Título *</label>
+            <input type="text" id="sorteio-titulo" placeholder="Ex: Sorteio VIP Black Friday" maxlength="200" required />
+          </div>
+          <div class="form-group" style="width:140px">
+            <label>Vagas (0=∞)</label>
+            <input type="number" id="sorteio-qty" value="0" min="0" />
+          </div>
+          <div class="form-group" style="width:140px">
+            <label>Limite/usuário</label>
+            <input type="number" id="sorteio-limite" value="1" min="0" />
+          </div>
+          <div class="form-group" style="width:140px">
+            <label>Status</label>
+            <select id="sorteio-status-sel">
+              <option value="programada">Programada</option>
+              <option value="ativa">Ativa</option>
+              <option value="pausada">Pausada</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row" style="margin-top:12px">
+          <div class="form-group" style="flex:1;min-width:220px">
+            <label>Banner (URL)</label>
+            <input type="text" id="sorteio-banner" placeholder="https://..." maxlength="1024" />
+          </div>
+          <div class="form-group" style="width:180px">
+            <label>ID interno</label>
+            <input type="text" id="sorteio-id-interno" placeholder="EXEMPLO-001" maxlength="100" />
+          </div>
+          <div class="form-group" style="width:120px">
+            <label>Destaque</label>
+            <input type="checkbox" id="sorteio-destaque" />
+          </div>
+          <div class="form-group" style="width:120px">
+            <label>Ordem</label>
+            <input type="number" id="sorteio-ordem" value="0" min="0" />
+          </div>
+        </div>
+
+        <div class="form-row" style="margin-top:12px">
+          <div class="form-group" style="flex:1;min-width:180px">
+            <label>Abertura VIP</label>
+            <input type="datetime-local" id="sorteio-data-vip" />
+          </div>
+          <div class="form-group" style="flex:1;min-width:180px">
+            <label>Abertura Pública</label>
+            <input type="datetime-local" id="sorteio-data-publica" />
+          </div>
+          <div class="form-group" style="flex:1;min-width:180px">
+            <label>Data do sorteio</label>
+            <input type="datetime-local" id="sorteio-data-sorteio" />
+          </div>
+          <div class="form-group" style="flex:1;min-width:180px">
+            <label>Encerramento</label>
+            <input type="datetime-local" id="sorteio-data-final" />
+          </div>
+          <div class="form-group" style="flex:1;min-width:180px">
+            <label>Tipo</label>
+            <input type="text" id="sorteio-tipo" placeholder="Ex: vip" maxlength="100" />
+          </div>
+        </div>
+
+        <div class="form-row" style="margin-top:12px">
+          <div class="form-group" style="flex:1;min-width:220px">
+            <label>Descrição completa</label>
+            <textarea id="sorteio-descricao" placeholder="Descrição completa do sorteio" maxlength="5000"></textarea>
+          </div>
+          <div class="form-group" style="width:260px">
+            <label>Imagem de capa</label>
+            <input type="file" id="sorteio-image-input" accept="image/*" />
+            <img id="sorteio-image-preview" class="image-preview hidden" alt="Preview da imagem" />
+          </div>
+        </div>
+
+        <div class="form-row" style="margin-top:12px">
+          <div class="form-group" style="flex:1;min-width:220px">
+            <label>Prêmio</label>
+            <input type="text" id="sorteio-premio" placeholder="Descrição do prêmio" maxlength="500" />
+          </div>
+          <div class="form-group" style="width:160px">
+            <label>Qtd. Ganhadores</label>
+            <input type="number" id="sorteio-quantidade-ganhadores" value="1" min="1" />
+          </div>
+        </div>
+
+        <div class="form-row" style="margin-top:12px">
+          <div class="form-group" style="flex:1;min-width:220px">
+            <label>Regulamento (link ou texto resumido)</label>
+            <textarea id="sorteio-regulamento" placeholder="Link para o regulamento ou texto breve" maxlength="5000"></textarea>
+          </div>
+        </div>
+
+        <div class="sorteio-card-actions">
+          <button type="submit" class="btn btn-primary" id="sorteio-submit-btn">Salvar sorteio</button>
+          <button type="button" class="btn btn-outline" id="sorteio-reset-btn">Limpar formulário</button>
+        </div>
+        <p class="gen-status" id="sorteio-form-status"></p>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="panel-label">
+        <div>
+          <p class="card-title">Lista de Sorteios VIP</p>
+          <div class="subtitle">Selecione um sorteio para ver detalhes e participantes em tempo real.</div>
+        </div>
+        <div class="sorteio-card-actions">
+          <button class="btn btn-outline" onclick="resetSorteioForm()">Novo sorteio</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Título</th>
+              <th>Status</th>
+              <th>Participantes</th>
+              <th>Vencedor</th>
+              <th>VIP</th>
+              <th>Datas</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="sorteios-tbody">
+            <tr><td colspan="7" style="text-align:center;color:#555;padding:24px">Carregando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pagination">
+        <button class="btn btn-outline" style="padding:6px 14px" onclick="sorteiosPagePrev()">← Anterior</button>
+        <span id="sorteios-pagination"></span>
+        <button class="btn btn-outline" style="padding:6px 14px" onclick="sorteiosPageNext()">Próxima →</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="sorteio-shell">
+        <div class="sorteio-panel-header">
+          <div>
+            <p class="card-title">Detalhes do sorteio</p>
+            <span id="sorteio-detail-title" class="subtitle">Selecione um sorteio para visualizar detalhes</span>
+          </div>
+          <span id="sorteio-badge-status" class="sorteio-summary-pill">Pronto para operação</span>
+        </div>
+
+        <div class="sorteio-tab-list" role="tablist">
+          <button class="sorteio-tab active" type="button" data-tab="resumo" onclick="switchSorteioAdminTab('resumo')">Resumo</button>
+          <button class="sorteio-tab" type="button" data-tab="participantes" onclick="switchSorteioAdminTab('participantes')">Participantes</button>
+          <button class="sorteio-tab" type="button" data-tab="historico" onclick="switchSorteioAdminTab('historico')">Histórico</button>
+        </div>
+
+        <div id="sorteio-tab-resumo" class="sorteio-tab-panel active">
+          <div class="detail-grid" id="sorteio-detail-grid">
+            <div class="detail-card">
+              <strong>Status</strong>
+              <span id="detail-status">—</span>
+            </div>
+            <div class="detail-card">
+              <strong>Participantes</strong>
+              <span id="detail-participants">—</span>
+            </div>
+            <div class="detail-card">
+              <strong>Vencedor</strong>
+              <span id="detail-winner">—</span>
+            </div>
+            <div class="detail-card">
+              <strong>Rodada</strong>
+              <span id="detail-round">—</span>
+            </div>
+            <div class="detail-card">
+              <strong>Modo de seleção</strong>
+              <span id="detail-selection-mode">—</span>
+            </div>
+            <div class="detail-card">
+              <strong>Datas</strong>
+              <span id="detail-dates">—</span>
+            </div>
+            <div class="detail-card">
+              <strong>Prêmio</strong>
+              <span id="detail-premio">—</span>
+            </div>
+            <div class="detail-card">
+              <strong>Qtd. Ganhadores</strong>
+              <span id="detail-quantidade-ganhadores">1</span>
+            </div>
+            <div class="detail-card">
+              <strong>Banner</strong>
+              <span id="detail-banner">—</span>
+            </div>
+            <div class="detail-card">
+              <strong>Tipo / Destaque / Ordem</strong>
+              <span id="detail-metadata">—</span>
+            </div>
+            <div class="detail-card">
+              <strong>ID interno</strong>
+              <span id="detail-id-interno">—</span>
+            </div>
+            <div class="detail-card" style="grid-column: 1 / -1;">
+              <strong>Regulamento</strong>
+              <div id="detail-regulamento" style="font-size:12px;color:var(--muted);max-height:96px;overflow:auto">—</div>
+            </div>
+          </div>
+
+          <div class="sorteio-highlight-card">
+            <div class="sorteio-highlight-title">Resumo operacional</div>
+            <div class="sorteio-highlight-grid">
+              <div class="sorteio-highlight-item">
+                <span>Prêmio</span>
+                <strong id="detail-premio-summary">—</strong>
+              </div>
+              <div class="sorteio-highlight-item">
+                <span>Vencedor(es)</span>
+                <strong id="detail-summary-winners">—</strong>
+              </div>
+              <div class="sorteio-highlight-item">
+                <span>Participantes</span>
+                <strong id="detail-summary-participants">—</strong>
+              </div>
+              <div class="sorteio-highlight-item">
+                <span>Datas</span>
+                <strong id="detail-summary-dates">—</strong>
+              </div>
+              <div class="sorteio-highlight-item">
+                <span>Histórico</span>
+                <strong id="detail-summary-history">—</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="sorteio-tab-participantes" class="sorteio-tab-panel">
+          <div class="form-row" style="margin-bottom:12px; align-items:flex-end;">
+            <div class="form-group" style="flex:1; min-width:240px;">
+              <label>Pesquisar participantes</label>
+              <input type="text" id="sorteio-participants-search" placeholder="UID, usuário, nome ou e-mail" />
+            </div>
+            <div class="sorteio-card-actions">
+              <button class="btn btn-outline" type="button" onclick="exportSorteioParticipantsCsv()">Exportar CSV</button>
+            </div>
+          </div>
+          <div class="table-wrap small">
+            <table>
+              <thead>
+                <tr>
+                  <th>UID</th>
+                  <th>Contagem</th>
+                  <th>Status</th>
+                  <th>Última participação</th>
+                </tr>
+              </thead>
+              <tbody id="sorteio-participants-tbody">
+                <tr><td colspan="4" style="text-align:center;color:#555;padding:24px">Selecione um sorteio para ver participantes.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="sorteio-tab-historico" class="sorteio-tab-panel">
+          <div class="card" style="margin-top:0">
+            <div class="card-header">
+              <p class="card-title">Histórico de Sorteios</p>
+              <span class="subtitle">Últimos vencedores registrados para este sorteio.</span>
+            </div>
+            <div class="table-wrap small">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Rodada</th>
+                    <th>Vencedor(es)</th>
+                    <th>Modo</th>
+                    <th>Sorteado por</th>
+                  </tr>
+                </thead>
+                <tbody id="sorteio-results-tbody">
+                  <tr><td colspan="3" style="text-align:center;color:#555;padding:24px">Selecione um sorteio para ver o histórico de resultados.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="sorteio-card-actions" style="justify-content: flex-end; margin-top: 4px;">
+          <button class="btn btn-sm btn-blue" onclick="drawWinnerSelected()">Sortear vencedor</button>
+          <button class="btn btn-sm btn-reset" onclick="rerollWinnerSelected()">Novo sorteio / Refazer</button>
+        </div>
+      </div>
+    </div>
+
+    </div>
+
+    <div class="card" id="produtos-antecipados-card">
+      <div class="card-header">
+        <div>
+          <p class="card-title">Produtos Antecipados</p>
+          <span class="subtitle">Visão geral de produtos antecipados e ações rápidas.</span>
+        </div>
+        <div class="sorteio-card-actions">
+          <button class="btn btn-outline" type="button" onclick="atualizarProdutosAntecipados()">Atualizar</button>
+          <button class="btn btn-primary" type="button" onclick="abrirModalProdutoAntecipado()">Novo Produto Antecipado</button>
+        </div>
+      </div>
+
+      <div class="stats-grid" style="margin-top:18px;">
+        <div class="stat-box">
+          <div class="stat-value total" id="produtos-stat-total">0</div>
+          <div class="stat-label">Total previstos</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value free" id="produtos-stat-publicados">0</div>
+          <div class="stat-label">Publicados</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value used" id="produtos-stat-pendentes">0</div>
+          <div class="stat-label">Pendentes</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value total" id="produtos-stat-atualizados">0</div>
+          <div class="stat-label">Atualizados</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <p class="card-title">Buscar Produtos Antecipados</p>
+      </div>
+
+      <div class="search-bar" style="margin-bottom:16px">
+        <input type="text" id="produtos-search-input" placeholder="Pesquisar produto antecipado..." style="max-width:280px" />
+        <button class="btn btn-outline" type="button" onclick="pesquisarProdutosAntecipados()">Pesquisar</button>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Código</th>
+              <th>Produto</th>
+              <th>Status</th>
+              <th>Preço</th>
+              <th>Data prevista</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="produtos-antecipados-tbody">
+            <tr><td colspan="6" style="text-align:center;color:#555;padding:24px">Nenhum produto antecipado carregado.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card hidden" id="produto-antecipado-form-card">
+      <p class="card-title" id="produto-antecipado-form-title">Novo Produto Antecipado</p>
+      <form id="produto-antecipado-form" onsubmit="event.preventDefault(); salvarProdutoAntecipado();">
+        <input type="hidden" id="produto-antecipado-id" />
+
+        <div class="form-row" style="margin-top:12px;">
+          <div class="form-group" style="flex:1;min-width:180px;">
+            <label>Código</label>
+            <input type="text" id="produto-antecipado-codigo" placeholder="Código do produto" required />
+          </div>
+          <div class="form-group" style="flex:2;min-width:220px;">
+            <label>Nome do produto</label>
+            <input type="text" id="produto-antecipado-nome" placeholder="Nome do produto" required />
+          </div>
+        </div>
+
+        <div class="form-row" style="margin-top:12px;">
+          <div class="form-group" style="width:160px;">
+            <label>Categoria</label>
+            <input type="text" id="produto-antecipado-categoria" placeholder="Categoria" required />
+          </div>
+          <div class="form-group" style="width:160px;">
+            <label>Marca</label>
+            <input type="text" id="produto-antecipado-marca" placeholder="Marca" required />
+          </div>
+          <div class="form-group" style="width:140px;">
+            <label>SKU</label>
+            <input type="text" id="produto-antecipado-sku" placeholder="SKU (opcional)" />
+          </div>
+        </div>
+
+        <div class="form-row" style="margin-top:12px;">
+          <div class="form-group" style="width:140px;">
+            <label>Preço</label>
+            <input type="number" step="0.01" id="produto-antecipado-preco" placeholder="0.00" required />
+          </div>
+          <div class="form-group" style="width:140px;">
+            <label>Preço prom.</label>
+            <input type="number" step="0.01" id="produto-antecipado-preco-promocional" placeholder="0.00" />
+          </div>
+          <div class="form-group" style="width:140px;">
+            <label>Desconto %</label>
+            <input type="number" step="0.01" min="0" max="100" id="produto-antecipado-desconto" placeholder="0" />
+          </div>
+          <div class="form-group" style="width:130px;">
+            <label>Ordem</label>
+            <input type="number" id="produto-antecipado-ordem" value="0" />
+          </div>
+        </div>
+
+        <div class="form-row" style="margin-top:12px;">
+          <div class="form-group" style="width:140px;">
+            <label>Estoque</label>
+            <input type="number" id="produto-antecipado-estoque" value="0" required />
+          </div>
+          <div class="form-group" style="width:140px;">
+            <label>Estoque mínimo</label>
+            <input type="number" id="produto-antecipado-estoque-minimo" value="0" />
+          </div>
+          <div class="form-group" style="width:180px;">
+            <label>Data publicação</label>
+            <input type="datetime-local" id="produto-antecipado-data-publicacao" />
+          </div>
+          <div class="form-group" style="width:180px;">
+            <label>Data expiração</label>
+            <input type="datetime-local" id="produto-antecipado-data-expiracao" />
+          </div>
+        </div>
+
+        <div class="form-row" style="margin-top:12px;gap:12px;flex-wrap:wrap;">
+          <div class="form-group" style="flex:1;min-width:220px;">
+            <label>Imagem principal (URL)</label>
+            <input type="text" id="produto-antecipado-imagem-principal" placeholder="URL da imagem principal" />
+          </div>
+          <div class="form-group" style="flex:1;min-width:220px;">
+            <label>Imagens (URLs separadas por vírgula)</label>
+            <input type="text" id="produto-antecipado-imagens" placeholder="url1, url2, ..." />
+          </div>
+        </div>
+
+        <div class="form-row" style="margin-top:12px;gap:12px;flex-wrap:wrap;">
+          <div class="form-group" style="width:140px;">
+            <label>Cor da categoria</label>
+            <input type="text" id="produto-antecipado-categoria-cor" placeholder="#fff" />
+          </div>
+          <div class="form-group" style="width:140px;">
+            <label>Ícone da categoria</label>
+            <input type="text" id="produto-antecipado-categoria-icone" placeholder="🎉" />
+          </div>
+          <div class="form-group" style="width:140px;">
+            <label>Ativo</label>
+            <input type="checkbox" id="produto-antecipado-ativo" />
+          </div>
+          <div class="form-group" style="width:140px;">
+            <label>Destaque</label>
+            <input type="checkbox" id="produto-antecipado-destaque" />
+          </div>
+          <div class="form-group" style="width:140px;">
+            <label>Exclusivo VIP5</label>
+            <input type="checkbox" id="produto-antecipado-exclusivo-vip5" />
+          </div>
+        </div>
+
+        <div class="form-row" style="margin-top:12px;">
+          <div class="form-group" style="flex:1;min-width:220px;">
+            <label>Descrição</label>
+            <textarea id="produto-antecipado-descricao" placeholder="Descrição do produto" rows="3" style="width:100%;border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:10px;background:transparent;color:inherit"></textarea>
+          </div>
+        </div>
+
+        <div class="sorteio-card-actions" style="justify-content:flex-end; margin-top:16px; gap:12px;">
+          <button class="btn btn-outline" type="button" onclick="resetProdutoAntecipadoForm()">Cancelar</button>
+          <button class="btn btn-primary" type="submit" id="produto-antecipado-submit-btn">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+
+  <script type="module" src="admin.js"></script>
+
+</body>
+</html>
