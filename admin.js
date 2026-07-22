@@ -48,12 +48,14 @@ import {
   fetchSorteioResults,
 } from "./vip5-sorteios-storage.js";
 
+import { generateVipCodes } from "./vip5-storage.js";
+
 console.log("[ADMIN] admin.js carregado.");
 
-const VIP_CODES_COL = "vip5_codes";
+const VIP_CODES_COL = "vip5_codigos";
 const USERS_COL     = "users";
 const VIP_SORTEIOS_COL = "vip5_sorteios";
-const VIP_SORTEIO_PARTICIPANTS = "participantes";
+const VIP_SORTEIO_PARTICIPANTS = "vip5_sorteios_participantes";
 const PRODUTOS_ANTECIPADOS_COL = "produtos_antecipados";
 const PAGE_SIZE     = 20;
 const SORTEIOS_PAGE_SIZE = 12;
@@ -93,6 +95,7 @@ let selectedSorteioWinner = null;
 let selectedSorteioResults = [];
 let activeSorteioAdminTab = "resumo";
 let sorteioParticipantsSearch = "";
+let validatedGeradorCodes = [];
 const toastTimeouts = new Set();
 
 function clearPendingToasts() {
@@ -100,33 +103,49 @@ function clearPendingToasts() {
   toastTimeouts.clear();
 }
 
-window.addEventListener("beforeunload", clearPendingToasts);
-
-// ─── Geração de código aleatório ─────────────────────────────────────────────
-function randomSegment(len = 8) {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let s = "";
-  for (let i = 0; i < len; i++) s += chars[Math.floor(Math.random() * chars.length)];
-  return s;
-}
-
-function generateUniqueCodes(prefix, qty, existingSet) {
-  const codes = [];
-  let attempts = 0;
-  while (codes.length < qty && attempts < qty * 10) {
-    const code = (prefix + randomSegment(8)).toUpperCase();
-    if (!existingSet.has(code) && !codes.includes(code)) codes.push(code);
-    attempts++;
+window.addEventListener("beforeunload", () => {
+  clearPendingToasts();
+  if (codesUnsubscribe) {
+    codesUnsubscribe();
   }
-  return codes;
-}
+  if (selectedSorteioUnsubscribe) {
+    selectedSorteioUnsubscribe();
+  }
+  if (participantsUnsubscribe) {
+    participantsUnsubscribe();
+  }
+});
 
 // ─── Leitura dos dados: Códigos e Usuários ────────────────────────────────────
+let codesUnsubscribe = null;
+
+function subscribeToCodesRealtime() {
+  console.log("[ADMIN] Inscrevendo em atualizações de códigos em tempo real...");
+  if (codesUnsubscribe) {
+    codesUnsubscribe();
+  }
+  codesUnsubscribe = onSnapshot(
+    collection(db, VIP_CODES_COL),
+    (snapshot) => {
+      allCodes = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      console.log("[ADMIN] Códigos atualizados (tempo real):", allCodes.length);
+      renderCodes();
+      updateCodesStats();
+      updateLastRefresh();
+    },
+    (error) => {
+      console.error("[ADMIN] Erro ao ouvir códigos em tempo real:", error);
+      showToast("Erro ao atualizar códigos em tempo real.", "error");
+    }
+  );
+}
+
 async function fetchCodes() {
-  console.log("[ADMIN] Buscando vip5_codes...");
+  console.log("[ADMIN] Buscando vip5_codigos...");
   const snap = await getDocs(collection(db, VIP_CODES_COL));
   allCodes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   console.log("[ADMIN] Códigos carregados:", allCodes.length);
+  updateCodesStats();
 }
 
 async function fetchUsers() {
@@ -262,19 +281,33 @@ function toInputDatetime(value) {
 
 // ─── Renderização: Estatísticas ───────────────────────────────────────────────
 function renderStats() {
-  const total     = allCodes.length;
-  const used      = allCodes.filter(c => c.used).length;
-  const available = total - used;
-  document.getElementById("stat-total").textContent     = total;
-  document.getElementById("stat-used").textContent      = used;
-  document.getElementById("stat-available").textContent = available;
+  updateCodesStats();
 }
 
 // ─── Renderização: Tabela de Códigos ─────────────────────────────────────────
+function updateCodesStats() {
+  const total = allCodes.length;
+  const used = allCodes.filter(c => c.usado === true || c.used === true).length;
+  const available = total - used;
+  
+  const totalEl = document.getElementById("stat-total");
+  const usedEl = document.getElementById("stat-used");
+  const availEl = document.getElementById("stat-available");
+  
+  if (totalEl) totalEl.textContent = total;
+  if (usedEl) usedEl.textContent = used;
+  if (availEl) availEl.textContent = available;
+  
+  console.log(`[ADMIN] Stats: ${total} total, ${used} usado, ${available} disponível`);
+}
+
 function renderCodes() {
-  const filtered = allCodes.filter(c =>
-    !searchTerm || c.code?.toLowerCase().includes(searchTerm)
-  );
+  const filtered = allCodes.filter(c => {
+    const codigo = (c.codigo || c.code || c.id || "").toLowerCase();
+    const search = (searchTerm || "").toLowerCase();
+    return !search || codigo.includes(search);
+  });
+  
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   if (codesPage > totalPages) codesPage = totalPages;
 
@@ -288,21 +321,29 @@ function renderCodes() {
   }
 
   tbody.innerHTML = page.map(c => {
-    const activatedAt = c.activatedAt
-      ? (c.activatedAt.toDate ? fmtDate(c.activatedAt.toDate()) : fmtDate(new Date(c.activatedAt)))
+    const activatedAt = c.activatedAt || c.dataUso
+      ? (c.activatedAt?.toDate ? fmtDate(c.activatedAt.toDate()) : (c.dataUso?.toDate ? fmtDate(c.dataUso.toDate()) : fmtDate(new Date(c.activatedAt || c.dataUso))))
       : "—";
-    const usedBadge = c.used
-      ? `<span class="badge badge-used">Usado</span>`
-      : `<span class="badge badge-free">Livre</span>`;
+    const isUsed = c.usado === true || c.used === true;
+    const statusBadge = c.status === "inativo" 
+      ? `<span class="badge badge-used">Inativo</span>`
+      : (isUsed
+        ? `<span class="badge badge-used">Usado</span>`
+        : `<span class="badge badge-free">Livre</span>`);
+    const codigoTexto = c.codigo || c.code || c.id;
+    const usadoPor = c.usadoPor || c.activatedBy || "—";
+    const btnCancel = c.status !== "inativo" && !isUsed
+      ? `<button class="btn-sm btn-blue" onclick="cancelCode('${c.id}')">Cancelar</button>`
+      : "";
     return `
       <tr>
-        <td class="mono">${c.code || c.id}</td>
+        <td class="mono">${codigoTexto}</td>
         <td>${c.days ?? "—"}</td>
-        <td>${usedBadge}</td>
-        <td class="mono small">${c.activatedBy || "—"}</td>
+        <td>${statusBadge}</td>
+        <td class="mono small">${usadoPor}</td>
         <td>${activatedAt}</td>
         <td class="actions">
-          <button class="btn-sm btn-reset" onclick="resetCode('${c.id}')">Resetar</button>
+          ${btnCancel}
           <button class="btn-sm btn-delete" onclick="deleteCode('${c.id}')">Excluir</button>
         </td>
       </tr>`;
@@ -761,6 +802,99 @@ function renderSorteios() {
   renderSorteioStats();
 }
 
+function _isGeradorCodeForSorteio(code, sorteio) {
+  if (!sorteio) return false;
+  const normalizeValue = (value) => String(value || "").trim().toLowerCase();
+  const sorteioId = normalizeValue(sorteio.id || "");
+  const sorteioInterno = normalizeValue(sorteio.idInterno || "");
+  const codeSorteioId = normalizeValue(code?.sorteioId || code?.sorteio_id || "");
+  const codeSorteioInterno = normalizeValue(code?.idInterno || code?.sorteioInterno || "");
+  const codeSorteioNome = normalizeValue(code?.sorteioNome || "");
+  const sorteioNome = normalizeValue(sorteio.titulo || "");
+
+  return codeSorteioId === sorteioId
+    || codeSorteioId === sorteioInterno
+    || codeSorteioInterno === sorteioId
+    || codeSorteioInterno === sorteioInterno
+    || codeSorteioNome === sorteioNome;
+}
+
+async function fetchValidatedGeradorCodes() {
+  try {
+    const snapshot = await getDocs(collection(db, "vip5_gerador_codigos"));
+    validatedGeradorCodes = snapshot.docs
+      .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+      .filter((code) => {
+        const status = String(code?.status || "").trim().toLowerCase();
+        return code?.usado === true || status === "usado";
+      })
+      .sort((a, b) => {
+        const aTime = a?.usadoEm?.toDate ? a.usadoEm.toDate() : a?.usadoEm;
+        const bTime = b?.usadoEm?.toDate ? b.usadoEm.toDate() : b?.usadoEm;
+        return new Date(bTime || 0) - new Date(aTime || 0);
+      });
+  } catch (error) {
+    console.error("[ADMIN] Erro ao carregar códigos Gerador validados:", error);
+    validatedGeradorCodes = [];
+  }
+
+  renderValidatedGeradorCodes();
+  renderSorteioDetails();
+}
+
+function renderValidatedGeradorCodes() {
+  const tbody = document.getElementById("validated-gerador-codes-tbody");
+  const countEl = document.getElementById("validated-gerador-codes-count");
+
+  if (!tbody) return;
+
+  if (!validatedGeradorCodes.length) {
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#555;padding:24px">Nenhum código Gerador validado ainda.</td></tr>`;
+    if (countEl) countEl.textContent = "0";
+    return;
+  }
+
+  tbody.innerHTML = validatedGeradorCodes.map((code) => {
+    const usedAt = code?.usadoEm?.toDate ? code.usadoEm.toDate() : code?.usadoEm;
+    const usedBy = code?.usadoPor || "—";
+    const codigo = code?.codigo || code?.id || "—";
+    const sorteioLabel = code?.sorteioNome || code?.sorteioId || "—";
+    return `
+      <tr>
+        <td class="mono small">${codigo}</td>
+        <td class="small">${sorteioLabel}</td>
+        <td class="mono small">${usedBy}</td>
+        <td class="small">${usedAt ? _formatDateValue(usedAt) : "—"}</td>
+      </tr>`;
+  }).join("");
+
+  if (countEl) countEl.textContent = String(validatedGeradorCodes.length);
+}
+
+function renderSelectedSorteioValidatedCodes() {
+  const tbody = document.getElementById("detail-gerador-validacoes-tbody");
+  if (!tbody) return;
+
+  const codesForSorteio = (validatedGeradorCodes || []).filter((code) => _isGeradorCodeForSorteio(code, selectedSorteio));
+
+  if (!codesForSorteio.length) {
+    tbody.innerHTML = `<tr><td colspan="3" style="text-align:center;color:#555;padding:20px">Nenhum código Gerador validado para este sorteio.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = codesForSorteio.map((code) => {
+    const usedAt = code?.usadoEm?.toDate ? code.usadoEm.toDate() : code?.usadoEm;
+    const usedBy = code?.usadoPor || "—";
+    const codigo = code?.codigo || code?.id || "—";
+    return `
+      <tr>
+        <td class="mono small">${codigo}</td>
+        <td class="mono small">${usedBy}</td>
+        <td class="small">${usedAt ? _formatDateValue(usedAt) : "—"}</td>
+      </tr>`;
+  }).join("");
+}
+
 function renderSorteioDetails() {
   const titleEl = document.getElementById("sorteio-detail-title");
   const statusEl = document.getElementById("detail-status");
@@ -839,6 +973,7 @@ function renderSorteioDetails() {
     badgeEl.textContent = statusMeta.txt;
     badgeEl.className = `sorteio-summary-pill ${statusMeta.cls}`;
   }
+  renderSelectedSorteioValidatedCodes();
   renderSorteioAdminTabs();
 }
 
@@ -971,6 +1106,7 @@ function selectSorteio(id) {
   renderSorteios();
   subscribeSorteioRealtime(id);
   fetchSelectedSorteioResults(id);
+  renderSorteioDetails();
 }
 
 async function fetchSelectedSorteioResults(id) {
@@ -1362,6 +1498,52 @@ async function handleSorteioFormSubmit(event) {
   }
 }
 
+// ─── Operações: Códigos ──────────────────────────────────────────────────────
+window.cancelCode = async function (codeId) {
+  if (!confirm(`Cancelar código "${codeId}"? Isto marcará como inativo.`)) return;
+  try {
+    await updateDoc(doc(db, VIP_CODES_COL, codeId), {
+      status: "inativo",
+      updatedAt: serverTimestamp()
+    });
+    showToast(`Código "${codeId}" cancelado (inativo).`, "success");
+  } catch (err) {
+    console.error("[ADMIN] Erro ao cancelar código:", err);
+    showToast(`Erro ao cancelar código: ${err.message}`, "error");
+  }
+};
+
+window.deleteCode = async function (codeId) {
+  if (!confirm(`Excluir código "${codeId}" permanentemente? Esta ação não pode ser desfeita.`)) return;
+  try {
+    await deleteDoc(doc(db, VIP_CODES_COL, codeId));
+    showToast(`Código "${codeId}" excluído permanentemente.`, "success");
+  } catch (err) {
+    console.error("[ADMIN] Erro ao excluir código:", err);
+    showToast(`Erro ao excluir código: ${err.message}`, "error");
+  }
+};
+
+window.resetCode = async function (codeId) {
+  if (!confirm(`Resetar código "${codeId}"? Marcará como livre novamente.`)) return;
+  try {
+    await updateDoc(doc(db, VIP_CODES_COL, codeId), {
+      usado: false,
+      used: false,
+      usadoPor: null,
+      activatedBy: null,
+      dataUso: null,
+      activatedAt: null,
+      status: "ativo",
+      updatedAt: serverTimestamp()
+    });
+    showToast(`Código "${codeId}" resetado para livre.`, "success");
+  } catch (err) {
+    console.error("[ADMIN] Erro ao resetar código:", err);
+    showToast(`Erro ao resetar código: ${err.message}`, "error");
+  }
+};
+
 window.refreshSorteios = refreshSorteios;
 
 window.exportSorteioParticipantsCsv = function () {
@@ -1417,6 +1599,7 @@ async function refresh() {
     renderUsers();
     renderPromotions();
     window.renderizarProdutosAntecipados();
+    await fetchValidatedGeradorCodes();
     await refreshSorteios();
     updateLastRefresh();
   } catch (err) {
@@ -1874,19 +2057,23 @@ window.promosPageNext = () => {
 
 // ─── Exportação ───────────────────────────────────────────────────────────────
 window.exportTxt = function () {
-  const lines = allCodes.map(c => c.code || c.id).join("\n");
-  download("vip5_codes.txt", lines);
+  const lines = allCodes.map(c => c.codigo || c.code || c.id).join("\n");
+  download("vip5_codigos.txt", lines);
 };
 
 window.exportJson = function () {
   const data = allCodes.map(c => ({
-    code:        c.code || c.id,
-    days:        c.days,
-    used:        c.used,
-    activatedBy: c.activatedBy || null,
-    activatedAt: c.activatedAt || null
+    codigo:      c.codigo || c.code || c.id,
+    uid:         c.uid || null,
+    sorteioId:   c.sorteioId || null,
+    dias:        c.days || null,
+    status:      c.status || "ativo",
+    usado:       c.used || c.usado || false,
+    usadoPor:    c.usadoPor || c.activatedBy || null,
+    dataCriacao: c.dataCriacao || c.createdAt || null,
+    dataUso:     c.dataUso || c.activatedAt || null
   }));
-  download("vip5_codes.json", JSON.stringify(data, null, 2));
+  download("vip5_codigos.json", JSON.stringify(data, null, 2));
 };
 
 function download(filename, content) {
@@ -1899,13 +2086,22 @@ function download(filename, content) {
 // ─── Formulário: Gerar Códigos ────────────────────────────────────────────────
 async function handleGenerate(e) {
   e.preventDefault();
-  const days   = parseInt(document.getElementById("gen-days").value, 10);
-  const qty    = parseInt(document.getElementById("gen-qty").value, 10);
-  const prefix = document.getElementById("gen-prefix").value.trim().toUpperCase();
-  const status = document.getElementById("gen-status");
+  
+  const days        = parseInt(document.getElementById("gen-days").value, 10);
+  const qty         = parseInt(document.getElementById("gen-qty").value, 10);
+  const prefix      = document.getElementById("gen-prefix").value.trim().toUpperCase();
+  const uid         = document.getElementById("gen-uid").value.trim() || null;
+  const sorteioId   = document.getElementById("gen-sorteio-id").value.trim() || null;
+  const status      = document.getElementById("gen-status");
 
-  if (!days || days < 1) { alert("Informe a quantidade de dias."); return; }
-  if (!qty || qty < 1 || qty > 500) { alert("Quantidade deve ser entre 1 e 500."); return; }
+  if (!days || days < 1) { 
+    alert("Informe a quantidade de dias."); 
+    return; 
+  }
+  if (!qty || qty < 1 || qty > 500) { 
+    alert("Quantidade deve ser entre 1 e 500."); 
+    return; 
+  }
 
   const btn = document.getElementById("gen-btn");
   btn.disabled = true;
@@ -1913,34 +2109,48 @@ async function handleGenerate(e) {
   status.textContent = "";
 
   try {
-    const existingSet = new Set(allCodes.map(c => c.code || c.id));
-    const newCodes    = generateUniqueCodes(prefix, qty, existingSet);
+    if (!prefix && !uid && !sorteioId) {
+      throw new Error("Preencha ao menos um dos campos: Prefixo, UID ou ID do Sorteio.");
+    }
+    
+    const existingSet = allCodes.map(c => c.codigo || c.code || c.id);
+    
+    console.log("[ADMIN] Gerando códigos com:", { qty, days, prefix, uid, sorteioId });
+    
+    const newCodes = await generateVipCodes({
+      prefix,
+      qty,
+      days,
+      uid: uid || null,
+      sorteioId: sorteioId || null,
+      existingCodes: existingSet
+    });
 
-    console.log("[ADMIN] Gerando", newCodes.length, "códigos com", days, "dias...");
-    await Promise.all(newCodes.map(code =>
-      setDoc(doc(db, VIP_CODES_COL, code), {
-        code,
-        days,
-        used:        false,
-        activatedBy: null,
-        activatedAt: null,
-        createdAt:   serverTimestamp()
-      })
-    ));
+    if (!Array.isArray(newCodes) || newCodes.length === 0) {
+      throw new Error("Nenhum código foi gerado. Verifique os parâmetros.");
+    }
 
     console.log("[ADMIN] Códigos gerados com sucesso:", newCodes);
-    status.textContent = `✓ ${newCodes.length} código(s) gerado(s)!`;
+    status.textContent = `✓ ${newCodes.length} código(s) gerado(s) com sucesso!`;
     status.style.color = "#27ae60";
+    
+    // Limpar campos
+    document.getElementById("gen-days").value = "30";
+    document.getElementById("gen-qty").value = "1";
+    document.getElementById("gen-prefix").value = "";
+    document.getElementById("gen-uid").value = "";
+    document.getElementById("gen-sorteio-id").value = "";
+    
     await refresh();
   } catch (err) {
     console.error("[ADMIN] Erro ao gerar códigos:", err.code, err.message, err);
-    status.textContent = "Erro: " + err.message;
+    status.textContent = "Erro: " + (err.message || "Falha desconhecida. Verifique o console.");
     status.style.color = "#e74c3c";
   } finally {
     btn.disabled    = false;
     btn.textContent = "Gerar códigos";
   }
-}
+}}
 
 // ─── Formulário: Criar Promoção ───────────────────────────────────────────────
 async function handleCreatePromo(e) {
@@ -2068,5 +2278,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   await refresh();
-  console.log("[ADMIN] Dados carregados. Atualize manualmente conforme necessário.");
+  
+  // Ativar atualização em tempo real para códigos
+  subscribeToCodesRealtime();
+  
+  console.log("[ADMIN] Dados carregados. Códigos com atualização em tempo real ativa.");
 });
