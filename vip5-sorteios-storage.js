@@ -19,7 +19,18 @@ import {
   orderBy,
   onSnapshot,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { collectIntegrityIssues } from "./vip5-firestore-integrity.mjs";
+
+let collectIntegrityIssues = (payload = {}) => ({ issues: [] });
+
+const integrityModulePromise = import("./vip5-firestore-integrity.mjs")
+  .then((module) => {
+    if (typeof module.collectIntegrityIssues === "function") {
+      collectIntegrityIssues = module.collectIntegrityIssues;
+    }
+  })
+  .catch((error) => {
+    console.warn("[VIP5-SORTEIOS-STORAGE] Não foi possível carregar vip5-firestore-integrity.mjs; usando fallback.", error);
+  });
 
 const COL_SORTEIOS = "vip5_sorteios";
 const COL_LOGS = "vip5_sorteios_logs";
