@@ -8,11 +8,13 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
+  addDoc,
   serverTimestamp,
   onSnapshot,
   query,
   orderBy,
   limit,
+  where,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   getStorage,
@@ -54,6 +56,7 @@ console.log("[ADMIN] admin.js carregado.");
 
 const VIP_CODES_COL = "vip5_codigos";
 const GERADOR_CODES_COL = "vip5_gerador_codigos";
+const RESULTADOS_SORTEIOS_COL = "vip5_resultados_sorteios";
 const USERS_COL     = "users";
 const VIP_SORTEIOS_COL = "vip5_sorteios";
 const VIP_SORTEIO_PARTICIPANTS = "vip5_sorteios_participantes";
@@ -85,6 +88,10 @@ let sorteiosPage = 1;
 let sorteioFilterStatus = "";
 let sorteioFilterVip = "";
 let sorteioSort = "createdAt_desc";
+let sorteadorParticipantes = [];
+let sorteadorVencedoresSessao = [];
+let sorteadorUltimoVencedor = null;
+let sorteadorHistorico = [];
 let sorteioSearch = "";
 let selectedSorteioId = null;
 let selectedSorteio = null;
@@ -342,6 +349,251 @@ function toInputDatetime(value) {
 function renderStats() {
   updateCodesStats();
 }
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function renderSorteadorSorteiosSelect() {
+  const select = document.getElementById("sorteador-sorteio-select");
+  if (!select) return;
+
+  const currentValue = select.value || "";
+  const options = [
+    '<option value="">Selecione um sorteio</option>',
+    ...allSorteios.map((sorteio) => {
+      const id = String(sorteio.id || "");
+      const title = sorteio.titulo || id || "Sem título";
+      return `<option value="${id}" ${currentValue === id ? "selected" : ""}>${title}</option>`;
+    })
+  ];
+
+  select.innerHTML = options.join("");
+  if (!select.value && currentValue) {
+    select.value = currentValue;
+  }
+}
+
+function updateSorteadorSummary() {
+  const totalEl = document.getElementById("sorteador-total-participantes");
+  const qtyEl = document.getElementById("sorteador-quantidade-participantes");
+  const statusEl = document.getElementById("sorteador-status");
+
+  if (totalEl) {
+    totalEl.textContent = String(sorteadorParticipantes.length);
+  }
+  if (qtyEl) {
+    qtyEl.value = String(sorteadorParticipantes.length);
+  }
+  if (statusEl) {
+    if (!sorteadorParticipantes.length) {
+      statusEl.textContent = "Nenhum participante carregado.";
+      statusEl.className = "sorteador-status";
+    } else {
+      statusEl.textContent = `Participantes carregados: ${sorteadorParticipantes.length}`;
+      statusEl.className = "sorteador-status success";
+    }
+  }
+}
+
+function renderSorteadorResultado() {
+  const winnerEl = document.getElementById("sorteador-vencedor");
+  const winnerMetaEl = document.getElementById("sorteador-vencedor-meta");
+  if (!winnerEl) return;
+
+  if (!sorteadorUltimoVencedor) {
+    winnerEl.innerHTML = '<div style="color:#94a3b8;">Ainda não houve sorteio.</div>';
+    if (winnerMetaEl) winnerMetaEl.innerHTML = "";
+    return;
+  }
+
+  winnerEl.innerHTML = `
+    <div style="font-size:18px;font-weight:800;color:#fbbf24">🏆 ${escapeHtml(sorteadorUltimoVencedor.codigo || "—")}</div>
+    <div style="margin-top:8px;color:#e2e8f0">UID: ${escapeHtml(sorteadorUltimoVencedor.uid || "—")}</div>
+    <div style="margin-top:4px;color:#cbd5e1">Sorteio: ${escapeHtml(sorteadorUltimoVencedor.sorteioNome || "—")}</div>
+    <div style="margin-top:4px;color:#cbd5e1">ID do sorteio: ${escapeHtml(sorteadorUltimoVencedor.sorteioId || "—")}</div>
+    <div style="margin-top:4px;color:#cbd5e1">Data da validação: ${escapeHtml(sorteadorUltimoVencedor.dataValidacao || "—")}</div>
+  `;
+
+  if (winnerMetaEl) {
+    winnerMetaEl.innerHTML = `<div style="color:#86efac;font-size:13px">Vencedor registrado nesta sessão.</div>`;
+  }
+}
+
+function renderSorteadorVencedoresSessao() {
+  const container = document.getElementById("sorteador-vencedores-sessao");
+  if (!container) return;
+
+  if (!sorteadorVencedoresSessao.length) {
+    container.innerHTML = '<div style="color:#94a3b8">Nenhum vencedor sorteado ainda.</div>';
+    return;
+  }
+
+  container.innerHTML = sorteadorVencedoresSessao.map((item, index) => `
+    <div style="padding:10px 12px;border:1px solid rgba(255,255,255,0.12);border-radius:10px;background:rgba(255,255,255,0.04);margin-bottom:8px">
+      <div style="font-weight:700;color:#fbbf24">#${index + 1} · ${escapeHtml(item.codigo || "—")}</div>
+      <div style="margin-top:4px;color:#e2e8f0">UID: ${escapeHtml(item.uid || "—")}</div>
+      <div style="margin-top:4px;color:#cbd5e1">Data/Hora: ${escapeHtml(item.dataSorteio || "—")}</div>
+    </div>
+  `).join("");
+}
+
+async function renderSorteadorHistorico() {
+  const tbody = document.getElementById("sorteador-historico-tbody");
+  if (!tbody) return;
+
+  try {
+    const snap = await getDocs(collection(db, RESULTADOS_SORTEIOS_COL));
+    sorteadorHistorico = snap.docs
+      .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+      .sort((a, b) => {
+        const aTime = a.dataSorteio?.toDate ? a.dataSorteio.toDate().getTime() : new Date(a.dataSorteio || 0).getTime();
+        const bTime = b.dataSorteio?.toDate ? b.dataSorteio.toDate().getTime() : new Date(b.dataSorteio || 0).getTime();
+        return bTime - aTime;
+      });
+  } catch (error) {
+    console.warn("[ADMIN] Não foi possível carregar histórico do sorteador:", error);
+    sorteadorHistorico = [];
+  }
+
+  if (!sorteadorHistorico.length) {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#555;padding:24px">Nenhum sorteio registrado ainda.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = sorteadorHistorico.map((item) => {
+    const dataSorteio = item.dataSorteio?.toDate ? fmtDate(item.dataSorteio.toDate()) : "—";
+    const sorteioLabel = item.sorteioNome || item.sorteioId || "—";
+    return `
+      <tr>
+        <td class="mono">${escapeHtml(item.codigo || "—")}</td>
+        <td class="mono small">${escapeHtml(item.uid || "—")}</td>
+        <td>${escapeHtml(sorteioLabel)}</td>
+        <td>${escapeHtml(dataSorteio)}</td>
+      </tr>`;
+  }).join("");
+}
+
+window.loadSorteadorParticipantes = async function () {
+  const select = document.getElementById("sorteador-sorteio-select");
+  const selectedSorteioId = select ? select.value : "";
+  const selectedSorteio = allSorteios.find((item) => String(item.id) === String(selectedSorteioId)) || null;
+
+  if (!selectedSorteioId) {
+    sorteadorParticipantes = [];
+    sorteadorVencedoresSessao = [];
+    sorteadorUltimoVencedor = null;
+    updateSorteadorSummary();
+    renderSorteadorResultado();
+    renderSorteadorVencedoresSessao();
+    return;
+  }
+
+  try {
+    const snap = await getDocs(query(collection(db, GERADOR_CODES_COL), where("sorteioId", "==", selectedSorteioId)));
+    const filtered = snap.docs
+      .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+      .filter((item) => item.usado === true || String(item.status || "").toLowerCase() === "usado");
+
+    sorteadorParticipantes = filtered;
+    sorteadorVencedoresSessao = [];
+    sorteadorUltimoVencedor = null;
+    updateSorteadorSummary();
+    renderSorteadorResultado();
+    renderSorteadorVencedoresSessao();
+    showToast(`Participantes carregados: ${filtered.length}`, "success");
+  } catch (error) {
+    console.error("[ADMIN] Erro ao carregar participantes do sorteador:", error);
+    sorteadorParticipantes = [];
+    updateSorteadorSummary();
+    renderSorteadorResultado();
+    renderSorteadorVencedoresSessao();
+    showToast("Erro ao carregar participantes do sorteador.", "error");
+  }
+};
+
+window.realizarSorteioGerador = async function () {
+  if (!sorteadorParticipantes.length) {
+    showToast("Carregue os participantes primeiro.", "error");
+    return;
+  }
+
+  const available = sorteadorParticipantes.filter((participant) => !sorteadorVencedoresSessao.some((winner) => winner.codigo === participant.codigo));
+  if (!available.length) {
+    showToast("Todos os participantes já foram sorteados nesta sessão.", "error");
+    return;
+  }
+
+  const winner = available[Math.floor(Math.random() * available.length)];
+  const select = document.getElementById("sorteador-sorteio-select");
+  const sorteioId = select ? select.value : "";
+  const sorteioNome = allSorteios.find((item) => String(item.id) === String(sorteioId))?.titulo || "—";
+
+  const payload = {
+    codigo: winner.codigo || winner.id || null,
+    uid: winner.usadoPor || null,
+    sorteioId,
+    sorteioNome,
+    dataValidacao: winner.usadoEm?.toDate ? winner.usadoEm : null,
+    dataSorteio: serverTimestamp(),
+    adminUid: null,
+  };
+
+  try {
+    await addDoc(collection(db, RESULTADOS_SORTEIOS_COL), payload);
+    const formattedDate = winner.usadoEm?.toDate ? fmtDate(winner.usadoEm.toDate()) : "—";
+    sorteadorUltimoVencedor = {
+      ...payload,
+      dataValidacao: formattedDate,
+      dataSorteio: new Date().toLocaleString("pt-BR")
+    };
+    sorteadorVencedoresSessao = [
+      ...sorteadorVencedoresSessao,
+      {
+        ...payload,
+        dataSorteio: new Date().toLocaleString("pt-BR")
+      }
+    ];
+    renderSorteadorResultado();
+    renderSorteadorVencedoresSessao();
+    await renderSorteadorHistorico();
+    showToast("Vencedor registrado com sucesso.", "success");
+  } catch (error) {
+    console.error("[ADMIN] Erro ao salvar vencedor do sorteador:", error);
+    showToast("Erro ao salvar resultado do sorteio.", "error");
+  }
+};
+
+window.sortearNovamenteGerador = function () {
+  sorteadorVencedoresSessao = [];
+  sorteadorUltimoVencedor = null;
+  renderSorteadorResultado();
+  renderSorteadorVencedoresSessao();
+};
+
+window.exportarResultadoSorteador = function () {
+  const rows = sorteadorVencedoresSessao.map((item) => ({
+    codigo: item.codigo || "",
+    uid: item.uid || "",
+    sorteio: item.sorteioNome || "",
+    dataSorteio: item.dataSorteio || ""
+  }));
+
+  const header = ["codigo", "uid", "sorteio", "dataSorteio"];
+  const csv = [header.join(",")].concat(rows.map((row) => header.map((key) => `"${String(row[key] ?? "").replace(/"/g, '""')}"`).join(","))).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "sorteio-codigos-validados.csv";
+  link.click();
+  URL.revokeObjectURL(url);
+};
 
 // ─── Renderização: Tabela de Códigos ─────────────────────────────────────────
 function updateCodesStats() {
@@ -1250,6 +1502,7 @@ async function refreshSorteios() {
       throw new Error(result.error || "Erro ao buscar sorteios.");
     }
     allSorteios = result.data.items || [];
+    renderSorteadorSorteiosSelect();
     renderSorteios();
   } catch (err) {
     console.error("[ADMIN] Erro ao atualizar sorteios:", err.message, err);
@@ -1636,6 +1889,7 @@ async function refresh() {
     renderPromotions();
     window.renderizarProdutosAntecipados();
     await refreshSorteios();
+    renderSorteadorSorteiosSelect();
     renderGeradorValidatedCodes();
     updateLastRefresh();
   }
@@ -2321,6 +2575,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderParticipants();
   renderSorteioResults();
   window.renderizarProdutosAntecipados();
+
+  renderSorteadorSorteiosSelect();
+  updateSorteadorSummary();
+  renderSorteadorResultado();
+  renderSorteadorVencedoresSessao();
+  await renderSorteadorHistorico();
 
   await refresh();
   

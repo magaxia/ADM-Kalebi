@@ -715,6 +715,93 @@
       </div>
     </div>
 
+    <!-- Sorteador de códigos do Gerador validados -->
+    <div class="card">
+      <div class="card-header">
+        <p class="card-title">🎲 Sorteador de Códigos Validados</p>
+        <span class="subtitle">Sorteie apenas entre os códigos do Gerador já validados para o sorteio escolhido.</span>
+      </div>
+
+      <div class="form-row" style="margin-bottom:16px">
+        <div class="form-group" style="min-width:280px;flex:1">
+          <label>Sorteio</label>
+          <select id="sorteador-sorteio-select">
+            <option value="">Selecione um sorteio</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>&nbsp;</label>
+          <button type="button" class="btn btn-outline" onclick="loadSorteadorParticipantes()">Carregar participantes</button>
+        </div>
+        <div class="form-group">
+          <label>&nbsp;</label>
+          <button type="button" class="btn btn-primary" onclick="realizarSorteioGerador()">Sortear vencedor</button>
+        </div>
+        <div class="form-group">
+          <label>&nbsp;</label>
+          <button type="button" class="btn btn-outline" onclick="sortearNovamenteGerador()">Limpar sessão</button>
+        </div>
+      </div>
+
+      <div class="stats-grid" style="margin-bottom:16px; grid-template-columns: repeat(3, minmax(0, 1fr)); max-width:700px;">
+        <div class="stat-box">
+          <div class="stat-value total" id="sorteador-total-participantes">0</div>
+          <div class="stat-label">Participantes</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value total" id="sorteador-quantidade-participantes">0</div>
+          <div class="stat-label">Quantidade</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value total" id="sorteador-status">Aguardando seleção</div>
+          <div class="stat-label">Status</div>
+        </div>
+      </div>
+
+      <div class="table-wrap" style="margin-bottom:16px">
+        <table>
+          <thead>
+            <tr>
+              <th>Vencedor atual</th>
+              <th>Últimos vencedores desta sessão</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="vertical-align:top">
+                <div id="sorteador-vencedor" style="min-height:80px"></div>
+                <div id="sorteador-vencedor-meta" style="margin-top:8px"></div>
+              </td>
+              <td style="vertical-align:top">
+                <div id="sorteador-vencedores-sessao"></div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card-header" style="margin-bottom:10px">
+        <p class="card-title" style="margin-bottom:0">Histórico do sorteador</p>
+        <button type="button" class="btn btn-outline" onclick="exportarResultadoSorteador()">⬇ Exportar CSV</button>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Código</th>
+              <th>UID</th>
+              <th>Sorteio</th>
+              <th>Data</th>
+            </tr>
+          </thead>
+          <tbody id="sorteador-historico-tbody">
+            <tr><td colspan="4" style="text-align:center;color:#555;padding:24px">Carregando histórico...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- Geração de códigos -->
     <div class="card">
       <p class="card-title" style="margin-bottom:18px">Gerar Códigos</p>
