@@ -17,12 +17,14 @@ import {
   increment,
   Timestamp,
   orderBy,
+  onSnapshot,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { collectIntegrityIssues } from "./vip5-firestore-integrity.mjs";
 
 const COL_SORTEIOS = "vip5_sorteios";
 const COL_LOGS = "vip5_sorteios_logs";
 const COL_RESULTS = "vip5_sorteios_resultados";
-const SUB_PARTICIPANTS = "participantes";
+const SUB_PARTICIPANTS = "vip5_sorteios_participantes";
 const MODULE = "vip5_sorteios";
 const DEF_LIMIT = 20;
 const MAX_LIMIT = 200;
@@ -703,6 +705,49 @@ export async function fetchAllSorteios({ statusFilter = null, limit: lim = DEF_L
   }
 }
 
+export function subscribeToActiveSorteios({ isVip = false, limit: lim = DEF_LIMIT, onChange } = {}) {
+  const safeLimit = _safeLimit(lim);
+  const activeQuery = query(
+    collection(db, COL_SORTEIOS),
+    where("status", "==", STATUS.ATIVA),
+    limit(safeLimit + 3)
+  );
+
+  return onSnapshot(activeQuery, (snapshot) => {
+    const now = new Date();
+    const items = snapshot.docs
+      .map(_serializeSnapshot)
+      .filter(Boolean)
+      .filter((sorteio) => {
+        if (!sorteio) return false;
+        const endDate = _toDate(sorteio.dataFinal);
+        if (endDate && endDate < now) return false;
+
+        const vipDate = _toDate(sorteio.dataVip);
+        const publicDate = _toDate(sorteio.dataPublica);
+        const isPublicVisible = publicDate && publicDate <= now;
+        const isVipVisible = vipDate && vipDate <= now && (!publicDate || publicDate > now);
+
+        if (isPublicVisible) return true;
+        if (isVipVisible) return isVip;
+        if (!vipDate && !publicDate) return true;
+        return false;
+      })
+      .sort((a, b) => _timestampToMillis(b.createdAt) - _timestampToMillis(a.createdAt))
+      .slice(0, safeLimit)
+      .map(_withDisplayDefaults);
+
+    if (typeof onChange === "function") {
+      onChange(items);
+    }
+  }, (error) => {
+    console.error("[Vip5SorteiosStorage] Erro ao ouvir sorteios ativos:", error);
+    if (typeof onChange === "function") {
+      onChange([]);
+    }
+  });
+}
+
 export async function fetchVisibleSorteios({ isVip = false, limit: lim = DEF_LIMIT } = {}) {
   try {
     const safeLimit = _safeLimit(lim);
@@ -847,6 +892,7 @@ export async function registerParticipation(sorteioId, uid, extra = {}) {
     const meta = _validateParticipationMeta(extra);
     const sorteioRef = doc(db, COL_SORTEIOS, sorteioId);
     const participantRef = _participantDocRef(sorteioId, uid);
+    const userRef = doc(db, "users", uid);
     const now = new Date();
 
     await runTransaction(db, async (transaction) => {
@@ -878,6 +924,12 @@ export async function registerParticipation(sorteioId, uid, extra = {}) {
         throw new Error(`Limite atingido: ${currentCount}/${limitePorUsuario}.`);
       }
 
+      const userSnap = await transaction.get(userRef);
+      const integrityIssues = collectIntegrityIssues({
+        participantDoc: participantSnap.exists() ? participantSnap.data() : null,
+        userDoc: userSnap.exists() ? userSnap.data() : null,
+      });
+
       transaction.update(sorteioRef, {
         participacoesCount: increment(1),
         updatedAt: serverTimestamp(),
@@ -891,6 +943,16 @@ export async function registerParticipation(sorteioId, uid, extra = {}) {
         createdAt: participantSnap.exists() ? participantSnap.data().createdAt : serverTimestamp(),
         lastParticipationAt: serverTimestamp(),
         ...meta,
+      }), { merge: true });
+
+      transaction.set(userRef, _stripUndefined({
+        uid,
+        createdAt: userSnap.exists() ? userSnap.data().createdAt : serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        lastParticipationAt: serverTimestamp(),
+        lastSorteioId: sorteioId,
+        lastIntegrityCheck: integrityIssues.length ? integrityIssues[0].type : null,
+        participacoesCount: increment(1),
       }), { merge: true });
     });
 

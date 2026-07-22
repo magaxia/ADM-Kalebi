@@ -15,9 +15,9 @@
  *   faça o deploy do arquivo firestore.indexes.json fornecido junto.
  *
  * Coleções Firestore:
- *   vip5_promocoes                — documentos de promoção
- *   vip5_promocoes_participacoes  — participações (ID: {promoId}_{uid})
- *   vip5_logs                     — auditoria de ações admin
+ *   vip5_promocoes                  — documentos de promoção
+ *   vip5_promocoes_participantes   — participações (ID: {promoId}_{uid})
+ *   vip5_promocoes_logs            — auditoria de ações admin
  */
 
 import { db } from "./vip5-firebase.js";
@@ -42,9 +42,9 @@ import {
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 const COL_PROMOS  = "vip5_promocoes";
-const COL_PARTS   = "vip5_promocoes_participacoes";
+const COL_PARTS   = "vip5_promocoes_participantes";
 const COL_USES    = "vip5_promocoes_usos";
-const COL_LOGS    = "vip5_logs";
+const COL_LOGS    = "vip5_promocoes_logs";
 const MODULE      = "vip5_promocoes";
 const DEF_LIMIT   = 20;
 const MAX_LIMIT   = 200;
@@ -764,6 +764,59 @@ export async function registerParticipation(promoId, uid, extra = {}, vipData = 
     if (!promoId) throw new Error("promoId é obrigatório.");
     if (!uid)     throw new Error("uid é obrigatório.");
 
+    // Detailed instrumentation: emit stack, caller function, source file:line, args, and inferred flow
+    try {
+      const err = new Error();
+      const rawStack = err.stack || "";
+      const stackLines = String(rawStack).split("\n").map((l) => l.trim()).filter(Boolean);
+
+      // Find first stack line that is not this function itself
+      let callerLine = null;
+      for (let i = 1; i < stackLines.length; i++) {
+        const line = stackLines[i];
+        if (!/registerParticipation/.test(line)) { callerLine = line; break; }
+      }
+
+      // Parse caller function name and file:line
+      let callerFn = null;
+      let callerFileLine = null;
+      const m = callerLine && callerLine.match(/at\s+(.*?)\s+\((.*?):(\d+):(\d+)\)$/);
+      if (m) {
+        callerFn = m[1];
+        callerFileLine = `${m[2]}:${m[3]}`;
+      } else if (callerLine) {
+        // Try alternative format: at /path/to/file:line:col
+        const m2 = callerLine.match(/at\s+(.*?):(\d+):(\d+)$/);
+        if (m2) {
+          callerFn = '<anonymous>';
+          callerFileLine = `${m2[1]}:${m2[2]}`;
+        } else {
+          callerFn = callerLine;
+          callerFileLine = '<unknown>';
+        }
+      }
+
+      // Determine likely origin flow by scanning the full stack text for known function names
+      const stackText = stackLines.join('\n');
+      const flow = (/participar\(|participar\b/.test(stackText)) ? 'participar()' :
+                   (/comprarProduto\b/.test(stackText)) ? 'comprarProduto()' :
+                   (/applyPromotionToPurchase\b/.test(stackText)) ? 'applyPromotionToPurchase()' :
+                   'unknown';
+
+      // Extract productId from extra if present
+      const productId = extra && (extra.produtoId || extra.productId || extra.produto || extra.productId) ? (extra.produtoId || extra.productId || extra.produto || extra.productId) : null;
+
+      console.groupCollapsed('[Vip5PromocoesStorage] registerParticipation TRACE', promoId, uid);
+      try { console.log('args:', { promoId, uid, productId, extra, vipData }); } catch(e){}
+      try { console.log('inferredFlow:', flow); } catch(e){}
+      try { console.log('callerFunction:', callerFn); } catch(e){}
+      try { console.log('callerSource:', callerFileLine); } catch(e){}
+      try { console.log('rawStack:\n', rawStack); } catch(e){}
+      console.groupEnd();
+    } catch (traceErr) {
+      try { console.warn('[Vip5PromocoesStorage] trace fail', traceErr && traceErr.message); } catch(e){}
+    }
+
     const promoRef = doc(db, COL_PROMOS, promoId);
     const partRef  = doc(db, COL_PARTS, `${promoId}_${uid}`);
     const useRef   = doc(db, COL_USES, `${promoId}_${uid}`);
@@ -836,6 +889,7 @@ export async function registerParticipation(promoId, uid, extra = {}, vipData = 
       message:  `Participação registrada. promoId="${promoId}" uid="${uid}"`,
     });
 
+    console.trace("[Vip5PromocoesStorage] Participação registrada:", { promoId, uid });
     console.log("[Vip5PromocoesStorage] Participação registrada:", promoId, uid);
     return _ok({ promoId, uid, participacaoId: `${promoId}_${uid}` });
   } catch (e) {
@@ -853,7 +907,7 @@ export async function registerParticipation(promoId, uid, extra = {}, vipData = 
  * @param {object|null} [opts.vipData]
  * @param {object} [opts.extra]
  */
-export async function applyPromotionToPurchase({ uid, productId = null, amount = 0, vipData = null, extra = {} } = {}) {
+export async function applyPromotionToPurchase({ uid, productId = null, amount = 0, vipData = null, preferredPromoId = null, selectedPromo = null, expectedFinalAmount = null, extra = {}, transaction = null } = {}) {
   try {
     if (!uid) throw new Error("uid é obrigatório.");
 
@@ -862,15 +916,176 @@ export async function applyPromotionToPurchase({ uid, productId = null, amount =
       return _ok({ applicable: false, promoId: null, discountAmount: 0, finalAmount: 0, reason: "Valor de compra inválido." });
     }
 
-    return await runTransaction(db, async (tx) => {
-      const promoQuery = query(collection(db, COL_PROMOS), where("status", "==", STATUS.ATIVA));
-      const promoSnapshot = await tx.get(promoQuery);
-      const promos = promoSnapshot.docs.map((snap) => _serialize(snap)).filter(Boolean);
+    const promoQuery = query(collection(db, COL_PROMOS), where("status", "==", STATUS.ATIVA));
+    const promoSnapshot = await getDocs(promoQuery);
+    const promos = promoSnapshot.docs.map((snap) => _serialize(snap)).filter(Boolean);
+
+    const resolvePromotion = async (tx) => {
+      if (selectedPromo && selectedPromo.id) {
+        const selectedPromoId = String(selectedPromo.id);
+        const promoRef = doc(db, COL_PROMOS, selectedPromoId);
+        const promoSnap = await tx.get(promoRef);
+        if (!promoSnap.exists()) {
+          return _ok({
+            applicable: false,
+            promoId: selectedPromoId,
+            discountAmount: 0,
+            finalAmount: baseAmount,
+            reason: "Promoção exibida não existe mais.",
+          });
+        }
+
+        const promoData = _serialize(promoSnap);
+        if (!promoData) {
+          return _ok({
+            applicable: false,
+            promoId: selectedPromoId,
+            discountAmount: 0,
+            finalAmount: baseAmount,
+            reason: "Promoção exibida não pôde ser lida.",
+          });
+        }
+
+        const now = new Date();
+        if (promoData.status !== STATUS.ATIVA) {
+          return _ok({
+            applicable: false,
+            promoId: selectedPromoId,
+            discountAmount: 0,
+            finalAmount: baseAmount,
+            reason: `Promoção exibida não está mais ativa (status: ${promoData.status}).`,
+          });
+        }
+
+        const inicio = _toDate(promoData.inicio);
+        if (inicio && inicio > now) {
+          return _ok({
+            applicable: false,
+            promoId: selectedPromoId,
+            discountAmount: 0,
+            finalAmount: baseAmount,
+            reason: "Promoção exibida ainda não começou.",
+          });
+        }
+
+        const end = _toDate(promoData.fim ?? promoData.dataFinal);
+        if (end && end < now) {
+          return _ok({
+            applicable: false,
+            promoId: selectedPromoId,
+            discountAmount: 0,
+            finalAmount: baseAmount,
+            reason: "Promoção exibida expirou.",
+          });
+        }
+
+        if (productId && !_matchSelectedProducts(promoData, productId)) {
+          return _ok({
+            applicable: false,
+            promoId: selectedPromoId,
+            discountAmount: 0,
+            finalAmount: baseAmount,
+            reason: "Promoção exibida não é válida para este produto.",
+          });
+        }
+
+        const useRef = doc(db, COL_USES, `${selectedPromoId}_${uid}`);
+        const partRef = doc(db, COL_PARTS, `${selectedPromoId}_${uid}`);
+        const useSnap = await tx.get(useRef);
+        const partSnap = await tx.get(partRef);
+        const count = _getUserPromoUsageCount(partSnap, useSnap);
+        const limite = Number(promoData.limitePorUsuario) || 1;
+        if (limite > 0 && count >= limite) {
+          return _ok({
+            applicable: false,
+            promoId: selectedPromoId,
+            discountAmount: 0,
+            finalAmount: baseAmount,
+            reason: `Promoção exibida já foi utilizada ${count}x e atingiu o limite por usuário (${limite}).`,
+          });
+        }
+
+        const qty = _getPromoCapacity(promoData);
+        const parts = _getPromoUsage(promoData);
+        if (qty > 0 && parts >= qty) {
+          return _ok({
+            applicable: false,
+            promoId: selectedPromoId,
+            discountAmount: 0,
+            finalAmount: baseAmount,
+            reason: "Promoção exibida esgotou vagas antes da compra.",
+          });
+        }
+
+        const discountedAmount = expectedFinalAmount !== null ? Number(expectedFinalAmount) : Number(selectedPromo.precoPromocional || 0);
+        const finalAmount = Number.isFinite(discountedAmount) ? Math.min(baseAmount, discountedAmount) : baseAmount;
+        const discountAmount = Math.max(0, baseAmount - finalAmount);
+
+        console.log("[Vip5PromocoesStorage] Checkout usando promoção exibida", {
+          selectedPromoId,
+          baseAmount,
+          precoPromocionalPreview: selectedPromo.precoPromocional,
+          expectedFinalAmount,
+          finalAmount,
+          discountAmount,
+        });
+
+        const nextRemaining = qty > 0 ? Math.max(0, qty - (parts + 1)) : null;
+        const nextStatus = (qty > 0 && nextRemaining === 0) ? STATUS.ENCERRADA : promoData.status;
+        const firstUserUse = !useSnap.exists();
+
+        tx.update(promoRef, {
+          participacoes:  increment(1),
+          utilizacoes:    increment(1),
+          ...(qty > 0 ? { restante: nextRemaining } : {}),
+          ...(firstUserUse ? { usuariosUsaram: increment(1) } : {}),
+          ...(nextStatus !== promoData.status ? { status: nextStatus } : {}),
+          atualizadoEm:   serverTimestamp(),
+        });
+
+        tx.set(partRef, {
+          promoId: selectedPromoId,
+          uid,
+          count: count + 1,
+          status: "confirmada",
+          criadoEm: partSnap.exists() ? partSnap.data().criadoEm : serverTimestamp(),
+          ultimaParticipacaoEm: serverTimestamp(),
+          produtoId: productId || null,
+          ...extra,
+        });
+
+        tx.set(useRef, {
+          promoId: selectedPromoId,
+          uid,
+          count: count + 1,
+          produtoId: productId || null,
+          status: "confirmada",
+          criadoEm: useSnap.exists() ? useSnap.data().criadoEm : serverTimestamp(),
+          ultimaParticipacaoEm: serverTimestamp(),
+          ...extra,
+        });
+
+        return _ok({
+          applicable: true,
+          promoId: selectedPromoId,
+          discountAmount,
+          finalAmount,
+          reason: null,
+        });
+      }
 
       const candidates = [];
+      const promoEvaluations = [];
       for (const promo of promos) {
         const useRef = doc(db, COL_USES, `${promo.id}_${uid}`);
         const partRef = doc(db, COL_PARTS, `${promo.id}_${uid}`);
+        if (!useRef || typeof useRef.path !== 'string') {
+          throw new Error(`useRef inválido para promoId=${promo.id}`);
+        }
+        if (!partRef || typeof partRef.path !== 'string') {
+          throw new Error(`partRef inválido para promoId=${promo.id}`);
+        }
+
         const useSnap = await tx.get(useRef);
         const partSnap = await tx.get(partRef);
         const count = _getUserPromoUsageCount(partSnap, useSnap);
@@ -883,6 +1098,18 @@ export async function applyPromotionToPurchase({ uid, productId = null, amount =
           now: new Date(),
         });
 
+        promoEvaluations.push({
+          promoId: promo.id,
+          title: promo.titulo || promo.title || null,
+          eligible: eligibility.eligible,
+          reason: eligibility.reason,
+          discountAmount: eligibility.discountAmount,
+          finalAmount: eligibility.finalAmount,
+          currentUsageCount: count,
+          restante: promo.restante,
+          limitePorUsuario: promo.limitePorUsuario,
+        });
+
         if (eligibility.eligible) {
           candidates.push({
             ...promo,
@@ -891,15 +1118,63 @@ export async function applyPromotionToPurchase({ uid, productId = null, amount =
         }
       }
 
+      console.log("[Vip5PromocoesStorage] Promoções avaliadas no checkout", {
+        baseAmount,
+        preferredPromoId,
+        totalPromos: promos.length,
+        candidates: candidates.length,
+        promoEvaluations,
+      });
+
       if (!candidates.length) {
+        const preferredDetail = promoEvaluations.find((entry) => String(entry.promoId) === String(preferredPromoId));
+        if (preferredPromoId && preferredDetail) {
+          return _ok({
+            applicable: false,
+            promoId: preferredPromoId,
+            discountAmount: 0,
+            finalAmount: baseAmount,
+            reason: `Promoção preferida não aplicável: ${preferredDetail.reason || "sem razão detalhada"}`,
+          });
+        }
+
         return _ok({ applicable: false, promoId: null, discountAmount: 0, finalAmount: baseAmount, reason: "Nenhuma promoção aplicável no momento." });
       }
 
-      const selected = candidates
-        .sort((a, b) => (b.discountAmount - a.discountAmount) || (_toMs(b.criadoEm) - _toMs(a.criadoEm)))[0];
+      let selected = null;
+      if (preferredPromoId) {
+        selected = candidates.find((promo) => String(promo.id) === String(preferredPromoId));
+        if (!selected) {
+          const preferredDetail = promoEvaluations.find((entry) => String(entry.promoId) === String(preferredPromoId));
+          return _ok({
+            applicable: false,
+            promoId: preferredPromoId,
+            discountAmount: 0,
+            finalAmount: baseAmount,
+            reason: preferredDetail
+              ? `Promoção preferida não aplicável: ${preferredDetail.reason || "sem razão detalhada"}`
+              : "Promoção preferida não está entre as promoções elegíveis no momento.",
+          });
+        }
+      }
+      if (!selected) {
+        selected = candidates
+          .sort((a, b) => (b.discountAmount - a.discountAmount) || (_toMs(b.criadoEm) - _toMs(a.criadoEm)))[0];
+      }
+
+      if (!selected || !selected.id) {
+        return _ok({ applicable: false, promoId: null, discountAmount: 0, finalAmount: baseAmount, reason: "Promoção selecionada inválida." });
+      }
 
       const useRef = doc(db, COL_USES, `${selected.id}_${uid}`);
       const partRef = doc(db, COL_PARTS, `${selected.id}_${uid}`);
+      if (!useRef || typeof useRef.path !== 'string') {
+        throw new Error(`useRef inválido para selected.id=${selected.id}`);
+      }
+      if (!partRef || typeof partRef.path !== 'string') {
+        throw new Error(`partRef inválido para selected.id=${selected.id}`);
+      }
+
       const useSnap = await tx.get(useRef);
       const partSnap = await tx.get(partRef);
       const count = _getUserPromoUsageCount(partSnap, useSnap);
@@ -917,6 +1192,10 @@ export async function applyPromotionToPurchase({ uid, productId = null, amount =
       }
 
       const promoRef = doc(db, COL_PROMOS, selected.id);
+      if (!promoRef || typeof promoRef.path !== 'string') {
+        throw new Error(`promoRef inválido para selected.id=${selected.id}`);
+      }
+
       const promoSnap = await tx.get(promoRef);
       const promoData = promoSnap.data() || {};
       const qty = _getPromoCapacity(promoData);
@@ -956,14 +1235,33 @@ export async function applyPromotionToPurchase({ uid, productId = null, amount =
         ...extra,
       });
 
-      return _ok({
+      const result = _ok({
         applicable: true,
         promoId: selected.id,
         discountAmount: postEligibility.discountAmount,
         finalAmount: postEligibility.finalAmount,
         reason: null,
       });
-    });
+
+      console.log("[Vip5PromocoesStorage] Promo selecionada", {
+        promoId: selected.id,
+        preferredPromoId,
+        selectedTitle: selected.titulo || selected.title || selected.id,
+        baseAmount,
+        discountAmount: postEligibility.discountAmount,
+        finalAmount: postEligibility.finalAmount,
+        useCount: count,
+        currentVIP: vipData,
+      });
+
+      return result;
+    };
+
+    if (transaction) {
+      return await resolvePromotion(transaction);
+    }
+
+    return await runTransaction(db, async (tx) => resolvePromotion(tx));
   } catch (e) {
     return _err("Erro ao aplicar promoção na compra: " + e.message, e);
   }
@@ -978,7 +1276,7 @@ export async function applyPromotionToPurchase({ uid, productId = null, amount =
  *
  * CORREÇÃO: orderBy("criadoEm", "desc") removido do Firestore.
  * where("promoId", "==", ...) + orderBy() exigia índice composto em
- * vip5_promocoes_participacoes. Agora ordenação é feita client-side.
+ * vip5_promocoes_participantes. Agora ordenação é feita client-side.
  *
  * @param {string} promoId
  * @param {object} opts — { limit, startAfter }
@@ -1021,7 +1319,7 @@ export async function fetchParticipations(promoId, { limit: lim = DEF_LIMIT } = 
  *
  * CORREÇÃO: orderBy("timestamp", "desc") removido do Firestore.
  * where("module", "==", ...) + orderBy() exigia índice composto em
- * vip5_logs. Agora ordenação é feita client-side.
+ * vip5_promocoes_logs. Agora ordenação é feita client-side.
  *
  * @param {object} opts — { promoId, limit, startAfter }
  */
