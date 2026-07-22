@@ -171,12 +171,11 @@ if (typeof window !== 'undefined') {
   window.firebaseConfig = firebaseConfig;
 }
 
-const isLocalEmulator = typeof window !== 'undefined' && (
-  window.location.hostname === 'localhost' ||
-  window.location.hostname === '127.0.0.1' ||
-  window.location.protocol === 'file:'
+const shouldUseEmulator = typeof window !== 'undefined' && (
+  window.__VIP5_USE_FIREBASE_EMULATOR__ === true ||
+  window.location.search.includes('emulator=true')
 );
-if (isLocalEmulator) {
+if (shouldUseEmulator) {
   try {
     connectFirestoreEmulator(db, '127.0.0.1', 8080);
     connectAuthEmulator(auth, 'http://127.0.0.1:9099');

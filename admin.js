@@ -167,11 +167,17 @@ function subscribeToGeradorCodesRealtime() {
 }
 
 async function fetchCodes() {
-  console.log("[ADMIN] Buscando vip5_codigos...");
-  const snap = await getDocs(collection(db, VIP_CODES_COL));
-  allCodes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  console.log("[ADMIN] Códigos carregados:", allCodes.length);
+  try {
+    console.log("[ADMIN] Buscando vip5_codigos...");
+    const snap = await getDocs(collection(db, VIP_CODES_COL));
+    allCodes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    console.log("[ADMIN] Códigos carregados:", allCodes.length);
+  } catch (error) {
+    console.warn("[ADMIN] Não foi possível carregar vip5_codigos:", error);
+    allCodes = [];
+  }
   updateCodesStats();
+  renderCodes();
 }
 
 function isGeradorValidatedCode(code) {
@@ -181,22 +187,33 @@ function isGeradorValidatedCode(code) {
 }
 
 async function fetchValidatedGeradorCodes() {
-  console.log("[ADMIN] Buscando códigos validados do Gerador...");
-  const snap = await getDocs(collection(db, GERADOR_CODES_COL));
-  allGeradorValidatedCodes = snap.docs
-    .map((d) => ({ id: d.id, ...d.data() }))
-    .filter(isGeradorValidatedCode);
-  console.log("[ADMIN] Códigos do Gerador validados carregados:", allGeradorValidatedCodes.length);
+  try {
+    console.log("[ADMIN] Buscando códigos validados do Gerador...");
+    const snap = await getDocs(collection(db, GERADOR_CODES_COL));
+    allGeradorValidatedCodes = snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .filter(isGeradorValidatedCode);
+    console.log("[ADMIN] Códigos do Gerador validados carregados:", allGeradorValidatedCodes.length);
+  } catch (error) {
+    console.warn("[ADMIN] Não foi possível carregar códigos do Gerador:", error);
+    allGeradorValidatedCodes = [];
+  }
   renderGeradorValidatedCodes();
 }
 
 async function fetchUsers() {
-  console.log("[ADMIN] Buscando users...");
-  const snap = await getDocs(collection(db, USERS_COL));
-  allUsers = snap.docs
-    .map(d => ({ uid: d.id, ...d.data() }))
-    .filter(u => u.vip5Code);
-  console.log("[ADMIN] Usuários VIP carregados:", allUsers.length);
+  try {
+    console.log("[ADMIN] Buscando users...");
+    const snap = await getDocs(collection(db, USERS_COL));
+    allUsers = snap.docs
+      .map(d => ({ uid: d.id, ...d.data() }))
+      .filter(u => u.vip5Code);
+    console.log("[ADMIN] Usuários VIP carregados:", allUsers.length);
+  } catch (error) {
+    console.warn("[ADMIN] Não foi possível carregar usuários VIP:", error);
+    allUsers = [];
+  }
+  renderUsers();
 }
 
 // ─── Leitura dos dados: Promoções ─────────────────────────────────────────────
@@ -1603,7 +1620,16 @@ window.sorteioImageInputChanged = function (event) {
 
 async function refresh() {
   try {
-    await Promise.all([fetchCodes(), fetchUsers(), fetchPromotions(), fetchProdutosAntecipados(), fetchValidatedGeradorCodes()]);
+    await Promise.all([
+      fetchCodes(),
+      fetchUsers(),
+      fetchPromotions(),
+      fetchProdutosAntecipados(),
+      fetchValidatedGeradorCodes(),
+    ]);
+  } catch (err) {
+    console.error("[ADMIN] Erro ao atualizar dados:", err?.code, err?.message, err);
+  } finally {
     renderStats();
     renderCodes();
     renderUsers();
@@ -1612,8 +1638,6 @@ async function refresh() {
     await refreshSorteios();
     renderGeradorValidatedCodes();
     updateLastRefresh();
-  } catch (err) {
-    console.error("[ADMIN] Erro ao atualizar dados:", err.code, err.message, err);
   }
 }
 
@@ -2286,6 +2310,17 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (sorteioForm) {
     sorteioForm.addEventListener("submit", handleSorteioFormSubmit);
   }
+
+  renderStats();
+  renderCodes();
+  renderUsers();
+  renderPromotions();
+  renderGeradorValidatedCodes();
+  renderSorteios();
+  renderSorteioDetails();
+  renderParticipants();
+  renderSorteioResults();
+  window.renderizarProdutosAntecipados();
 
   await refresh();
   
