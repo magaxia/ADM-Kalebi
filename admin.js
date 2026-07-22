@@ -89,6 +89,7 @@ let sorteioFilterStatus = "";
 let sorteioFilterVip = "";
 let sorteioSort = "createdAt_desc";
 let sorteadorParticipantes = [];
+let sorteadorParticipantesRestantes = [];
 let sorteadorVencedoresSessao = [];
 let sorteadorUltimoVencedor = null;
 let sorteadorHistorico = [];
@@ -443,6 +444,17 @@ function renderSorteadorVencedoresSessao() {
   `).join("");
 }
 
+function getSorteadorParticipantKey(participant) {
+  return String(participant?.codigo || participant?.id || "").trim();
+}
+
+function pickRandomSorteadorParticipant() {
+  if (!sorteadorParticipantesRestantes.length) return null;
+  const randomIndex = Math.floor(Math.random() * sorteadorParticipantesRestantes.length);
+  const [participant] = sorteadorParticipantesRestantes.splice(randomIndex, 1);
+  return participant || null;
+}
+
 async function renderSorteadorHistorico() {
   const tbody = document.getElementById("sorteador-historico-tbody");
   if (!tbody) return;
@@ -486,6 +498,7 @@ window.loadSorteadorParticipantes = async function () {
 
   if (!selectedSorteioId) {
     sorteadorParticipantes = [];
+    sorteadorParticipantesRestantes = [];
     sorteadorVencedoresSessao = [];
     sorteadorUltimoVencedor = null;
     updateSorteadorSummary();
@@ -501,6 +514,7 @@ window.loadSorteadorParticipantes = async function () {
       .filter((item) => item.usado === true || String(item.status || "").toLowerCase() === "usado");
 
     sorteadorParticipantes = filtered;
+    sorteadorParticipantesRestantes = filtered.slice();
     sorteadorVencedoresSessao = [];
     sorteadorUltimoVencedor = null;
     updateSorteadorSummary();
@@ -523,13 +537,11 @@ window.realizarSorteioGerador = async function () {
     return;
   }
 
-  const available = sorteadorParticipantes.filter((participant) => !sorteadorVencedoresSessao.some((winner) => winner.codigo === participant.codigo));
-  if (!available.length) {
+  const winner = pickRandomSorteadorParticipant();
+  if (!winner) {
     showToast("Todos os participantes já foram sorteados nesta sessão.", "error");
     return;
   }
-
-  const winner = available[Math.floor(Math.random() * available.length)];
   const select = document.getElementById("sorteador-sorteio-select");
   const sorteioId = select ? select.value : "";
   const sorteioNome = allSorteios.find((item) => String(item.id) === String(sorteioId))?.titulo || "—";
@@ -572,6 +584,7 @@ window.realizarSorteioGerador = async function () {
 window.sortearNovamenteGerador = function () {
   sorteadorVencedoresSessao = [];
   sorteadorUltimoVencedor = null;
+  sorteadorParticipantesRestantes = sorteadorParticipantes.slice();
   renderSorteadorResultado();
   renderSorteadorVencedoresSessao();
 };
