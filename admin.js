@@ -53,6 +53,7 @@ import { generateVipCodes } from "./vip5-storage.js";
 console.log("[ADMIN] admin.js carregado.");
 
 const VIP_CODES_COL = "vip5_codigos";
+const GERADOR_CODES_COL = "vip5_gerador_codigos";
 const USERS_COL     = "users";
 const VIP_SORTEIOS_COL = "vip5_sorteios";
 const VIP_SORTEIO_PARTICIPANTS = "vip5_sorteios_participantes";
@@ -64,6 +65,7 @@ const PARTICIPANTS_PAGE_SIZE = 100;
 // ── Estado: Códigos e Usuários (inalterado) ───────────────────────────────────
 let allCodes  = [];
 let allUsers  = [];
+let allGeradorValidatedCodes = [];
 let codesPage = 1;
 let usersPage = 1;
 let searchTerm = "";
@@ -95,7 +97,6 @@ let selectedSorteioWinner = null;
 let selectedSorteioResults = [];
 let activeSorteioAdminTab = "resumo";
 let sorteioParticipantsSearch = "";
-let validatedGeradorCodes = [];
 const toastTimeouts = new Set();
 
 function clearPendingToasts() {
@@ -108,6 +109,9 @@ window.addEventListener("beforeunload", () => {
   if (codesUnsubscribe) {
     codesUnsubscribe();
   }
+  if (geradorCodesUnsubscribe) {
+    geradorCodesUnsubscribe();
+  }
   if (selectedSorteioUnsubscribe) {
     selectedSorteioUnsubscribe();
   }
@@ -118,6 +122,7 @@ window.addEventListener("beforeunload", () => {
 
 // ─── Leitura dos dados: Códigos e Usuários ────────────────────────────────────
 let codesUnsubscribe = null;
+let geradorCodesUnsubscribe = null;
 
 function subscribeToCodesRealtime() {
   console.log("[ADMIN] Inscrevendo em atualizações de códigos em tempo real...");
@@ -140,12 +145,49 @@ function subscribeToCodesRealtime() {
   );
 }
 
+function subscribeToGeradorCodesRealtime() {
+  console.log("[ADMIN] Inscrevendo em atualizações de códigos do Gerador em tempo real...");
+  if (geradorCodesUnsubscribe) {
+    geradorCodesUnsubscribe();
+  }
+  geradorCodesUnsubscribe = onSnapshot(
+    collection(db, GERADOR_CODES_COL),
+    (snapshot) => {
+      allGeradorValidatedCodes = snapshot.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter(isGeradorValidatedCode);
+      renderGeradorValidatedCodes();
+      updateLastRefresh();
+    },
+    (error) => {
+      console.error("[ADMIN] Erro ao ouvir códigos do Gerador em tempo real:", error);
+      showToast("Erro ao atualizar códigos do Gerador em tempo real.", "error");
+    }
+  );
+}
+
 async function fetchCodes() {
   console.log("[ADMIN] Buscando vip5_codigos...");
   const snap = await getDocs(collection(db, VIP_CODES_COL));
   allCodes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   console.log("[ADMIN] Códigos carregados:", allCodes.length);
   updateCodesStats();
+}
+
+function isGeradorValidatedCode(code) {
+  if (code?.usado === true) return true;
+  const status = String(code?.status || "").trim().toLowerCase();
+  return status === "usado" || status === "validado";
+}
+
+async function fetchValidatedGeradorCodes() {
+  console.log("[ADMIN] Buscando códigos validados do Gerador...");
+  const snap = await getDocs(collection(db, GERADOR_CODES_COL));
+  allGeradorValidatedCodes = snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .filter(isGeradorValidatedCode);
+  console.log("[ADMIN] Códigos do Gerador validados carregados:", allGeradorValidatedCodes.length);
+  renderGeradorValidatedCodes();
 }
 
 async function fetchUsers() {
@@ -299,6 +341,67 @@ function updateCodesStats() {
   if (availEl) availEl.textContent = available;
   
   console.log(`[ADMIN] Stats: ${total} total, ${used} usado, ${available} disponível`);
+}
+
+function formatGeradorValidationDate(value) {
+  if (!value) return "—";
+  if (value?.toDate) {
+    return fmtDate(value.toDate());
+  }
+  const dateValue = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(dateValue.getTime())) return "—";
+  return fmtDate(dateValue);
+}
+
+function renderGeradorValidatedCodes() {
+  const tbody = document.getElementById("gerador-validated-tbody");
+  const totalEl = document.getElementById("gerador-validated-total");
+  const filteredEl = document.getElementById("gerador-validated-filtered");
+  const summaryEl = document.getElementById("gerador-validated-summary");
+
+  if (!tbody) return;
+
+  const selectedSorteioKey = selectedSorteioId ? String(selectedSorteioId) : "";
+  const filtered = allGeradorValidatedCodes
+    .filter((item) => {
+      if (!selectedSorteioKey) return true;
+      return String(item.sorteioId || "") === selectedSorteioKey;
+    })
+    .sort((a, b) => {
+      const aTime = a.usadoEm?.toDate ? a.usadoEm.toDate().getTime() : (a.usadoEm ? new Date(a.usadoEm).getTime() : 0);
+      const bTime = b.usadoEm?.toDate ? b.usadoEm.toDate().getTime() : (b.usadoEm ? new Date(b.usadoEm).getTime() : 0);
+      return bTime - aTime;
+    });
+
+  if (totalEl) totalEl.textContent = String(allGeradorValidatedCodes.length);
+  if (filteredEl) filteredEl.textContent = String(filtered.length);
+  if (summaryEl) {
+    summaryEl.textContent = selectedSorteioKey
+      ? `Filtrando por sorteio selecionado (${selectedSorteio?.titulo || selectedSorteioId})`
+      : "Mostrando todos os códigos validados";
+  }
+
+  if (!filtered.length) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#555;padding:24px">Nenhum código do Gerador validado encontrado.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filtered.map((item) => {
+    const codigoTexto = item.codigo || item.id || "—";
+    const validadoPor = item.usadoPor || "—";
+    const validadoEm = formatGeradorValidationDate(item.usadoEm);
+    const sorteioIdTexto = item.sorteioId || "—";
+    const sorteioNomeTexto = item.sorteioNome || "—";
+
+    return `
+      <tr>
+        <td class="mono">${codigoTexto}</td>
+        <td class="mono small">${validadoPor}</td>
+        <td>${validadoEm}</td>
+        <td class="mono small">${sorteioIdTexto}</td>
+        <td>${sorteioNomeTexto}</td>
+      </tr>`;
+  }).join("");
 }
 
 function renderCodes() {
@@ -802,99 +905,6 @@ function renderSorteios() {
   renderSorteioStats();
 }
 
-function _isGeradorCodeForSorteio(code, sorteio) {
-  if (!sorteio) return false;
-  const normalizeValue = (value) => String(value || "").trim().toLowerCase();
-  const sorteioId = normalizeValue(sorteio.id || "");
-  const sorteioInterno = normalizeValue(sorteio.idInterno || "");
-  const codeSorteioId = normalizeValue(code?.sorteioId || code?.sorteio_id || "");
-  const codeSorteioInterno = normalizeValue(code?.idInterno || code?.sorteioInterno || "");
-  const codeSorteioNome = normalizeValue(code?.sorteioNome || "");
-  const sorteioNome = normalizeValue(sorteio.titulo || "");
-
-  return codeSorteioId === sorteioId
-    || codeSorteioId === sorteioInterno
-    || codeSorteioInterno === sorteioId
-    || codeSorteioInterno === sorteioInterno
-    || codeSorteioNome === sorteioNome;
-}
-
-async function fetchValidatedGeradorCodes() {
-  try {
-    const snapshot = await getDocs(collection(db, "vip5_gerador_codigos"));
-    validatedGeradorCodes = snapshot.docs
-      .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
-      .filter((code) => {
-        const status = String(code?.status || "").trim().toLowerCase();
-        return code?.usado === true || status === "usado";
-      })
-      .sort((a, b) => {
-        const aTime = a?.usadoEm?.toDate ? a.usadoEm.toDate() : a?.usadoEm;
-        const bTime = b?.usadoEm?.toDate ? b.usadoEm.toDate() : b?.usadoEm;
-        return new Date(bTime || 0) - new Date(aTime || 0);
-      });
-  } catch (error) {
-    console.error("[ADMIN] Erro ao carregar códigos Gerador validados:", error);
-    validatedGeradorCodes = [];
-  }
-
-  renderValidatedGeradorCodes();
-  renderSorteioDetails();
-}
-
-function renderValidatedGeradorCodes() {
-  const tbody = document.getElementById("validated-gerador-codes-tbody");
-  const countEl = document.getElementById("validated-gerador-codes-count");
-
-  if (!tbody) return;
-
-  if (!validatedGeradorCodes.length) {
-    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#555;padding:24px">Nenhum código Gerador validado ainda.</td></tr>`;
-    if (countEl) countEl.textContent = "0";
-    return;
-  }
-
-  tbody.innerHTML = validatedGeradorCodes.map((code) => {
-    const usedAt = code?.usadoEm?.toDate ? code.usadoEm.toDate() : code?.usadoEm;
-    const usedBy = code?.usadoPor || "—";
-    const codigo = code?.codigo || code?.id || "—";
-    const sorteioLabel = code?.sorteioNome || code?.sorteioId || "—";
-    return `
-      <tr>
-        <td class="mono small">${codigo}</td>
-        <td class="small">${sorteioLabel}</td>
-        <td class="mono small">${usedBy}</td>
-        <td class="small">${usedAt ? _formatDateValue(usedAt) : "—"}</td>
-      </tr>`;
-  }).join("");
-
-  if (countEl) countEl.textContent = String(validatedGeradorCodes.length);
-}
-
-function renderSelectedSorteioValidatedCodes() {
-  const tbody = document.getElementById("detail-gerador-validacoes-tbody");
-  if (!tbody) return;
-
-  const codesForSorteio = (validatedGeradorCodes || []).filter((code) => _isGeradorCodeForSorteio(code, selectedSorteio));
-
-  if (!codesForSorteio.length) {
-    tbody.innerHTML = `<tr><td colspan="3" style="text-align:center;color:#555;padding:20px">Nenhum código Gerador validado para este sorteio.</td></tr>`;
-    return;
-  }
-
-  tbody.innerHTML = codesForSorteio.map((code) => {
-    const usedAt = code?.usadoEm?.toDate ? code.usadoEm.toDate() : code?.usadoEm;
-    const usedBy = code?.usadoPor || "—";
-    const codigo = code?.codigo || code?.id || "—";
-    return `
-      <tr>
-        <td class="mono small">${codigo}</td>
-        <td class="mono small">${usedBy}</td>
-        <td class="small">${usedAt ? _formatDateValue(usedAt) : "—"}</td>
-      </tr>`;
-  }).join("");
-}
-
 function renderSorteioDetails() {
   const titleEl = document.getElementById("sorteio-detail-title");
   const statusEl = document.getElementById("detail-status");
@@ -941,6 +951,7 @@ function renderSorteioDetails() {
 
   if (detailGrid) detailGrid.style.display = "grid";
   if (titleEl) titleEl.textContent = selectedSorteio.titulo || "Sorteio selecionado";
+  renderGeradorValidatedCodes();
   if (statusEl) statusEl.textContent = selectedSorteio.status || "—";
   if (participantsEl) participantsEl.textContent = _toNonNegativeInteger(selectedSorteio.participacoesCount, 0);
   const winnerDisplay = getSorteioWinnerDisplay(selectedSorteio, selectedSorteioWinner || selectedSorteio?.winner || null);
@@ -973,7 +984,6 @@ function renderSorteioDetails() {
     badgeEl.textContent = statusMeta.txt;
     badgeEl.className = `sorteio-summary-pill ${statusMeta.cls}`;
   }
-  renderSelectedSorteioValidatedCodes();
   renderSorteioAdminTabs();
 }
 
@@ -1104,9 +1114,9 @@ function selectSorteio(id) {
   selectedSorteioResults = [];
   activeSorteioAdminTab = "resumo";
   renderSorteios();
+  renderGeradorValidatedCodes();
   subscribeSorteioRealtime(id);
   fetchSelectedSorteioResults(id);
-  renderSorteioDetails();
 }
 
 async function fetchSelectedSorteioResults(id) {
@@ -1593,14 +1603,14 @@ window.sorteioImageInputChanged = function (event) {
 
 async function refresh() {
   try {
-    await Promise.all([fetchCodes(), fetchUsers(), fetchPromotions(), fetchProdutosAntecipados()]);
+    await Promise.all([fetchCodes(), fetchUsers(), fetchPromotions(), fetchProdutosAntecipados(), fetchValidatedGeradorCodes()]);
     renderStats();
     renderCodes();
     renderUsers();
     renderPromotions();
     window.renderizarProdutosAntecipados();
-    await fetchValidatedGeradorCodes();
     await refreshSorteios();
+    renderGeradorValidatedCodes();
     updateLastRefresh();
   } catch (err) {
     console.error("[ADMIN] Erro ao atualizar dados:", err.code, err.message, err);
@@ -2150,7 +2160,7 @@ async function handleGenerate(e) {
     btn.disabled    = false;
     btn.textContent = "Gerar códigos";
   }
-}}
+}
 
 // ─── Formulário: Criar Promoção ───────────────────────────────────────────────
 async function handleCreatePromo(e) {
@@ -2281,6 +2291,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   
   // Ativar atualização em tempo real para códigos
   subscribeToCodesRealtime();
+  subscribeToGeradorCodesRealtime();
   
   console.log("[ADMIN] Dados carregados. Códigos com atualização em tempo real ativa.");
 });
