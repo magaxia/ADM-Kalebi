@@ -1188,6 +1188,7 @@ function renderSorteios() {
 }
 
 function renderSorteioDetails() {
+  const detailsCardEl = document.getElementById("sorteio-details-card");
   const titleEl = document.getElementById("sorteio-detail-title");
   const statusEl = document.getElementById("detail-status");
   const participantsEl = document.getElementById("detail-participants");
@@ -1203,7 +1204,8 @@ function renderSorteioDetails() {
 
   const detailGrid = document.getElementById("sorteio-detail-grid");
   if (!selectedSorteio) {
-    if (titleEl) titleEl.textContent = "Selecione um sorteio para visualizar detalhes";
+    if (detailsCardEl) detailsCardEl.classList.add("hidden");
+    if (titleEl) titleEl.textContent = "";
     if (statusEl) statusEl.textContent = "—";
     if (participantsEl) participantsEl.textContent = "—";
     if (winnerEl) winnerEl.textContent = "—";
@@ -1231,6 +1233,7 @@ function renderSorteioDetails() {
     ? "Única / sem repetição"
     : (selectedSorteio?.lastDraw?.selectionMode || "Padrão");
 
+  if (detailsCardEl) detailsCardEl.classList.remove("hidden");
   if (detailGrid) detailGrid.style.display = "grid";
   if (titleEl) titleEl.textContent = selectedSorteio.titulo || "Sorteio selecionado";
   renderGeradorValidatedCodes();
